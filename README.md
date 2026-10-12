@@ -36,12 +36,12 @@ declared — so the clipboard's own `SUPER + CTRL + V` keeps working.
   the file manager (`Alt+Enter`).
 - **Git at a glance** — branch, dirty marker, ahead/behind counts in the list and
   detail pane.
-- **Git operations** — fetch, fast-forward pull, switch/create branch (a filterable
-  picker), open in `lazygit`/`tig`, and open the branch on the web.
+- **lazygit** — any git repo gets a single "Open in lazygit" action (enabled when
+  `lazygit` is installed), also bound to `Ctrl+Shift+G`.
 - **Clone & create** — `Ctrl+L` clones a repo into your first discovery root;
   `Ctrl+N` scaffolds a new project (`mkdir` + `git init`).
-- **Browser & clipboard** — `Ctrl+G` opens the repository remote; copy the
-  project path (`Ctrl+Y`) or the clone URL.
+- **Browser & clipboard** — `Ctrl+G` opens the repository remote; `Ctrl+Y` copies
+  the project path.
 - **Fuzzy search** — filter matches on name, path, tags, editor and branch as a
   subsequence, with matches highlighted.
 - **Tasks** — auto-detected and per-project commands run in a terminal (output
@@ -100,8 +100,8 @@ and give the overlay layer a stable namespace rule in
 | `Shift+Enter` | Open a terminal in the project |
 | `Alt+Enter` | Open the file manager |
 | `Ctrl+E` | Cycle editor for the current project |
-| `Ctrl+B` | Switch git branch (filterable picker) |
 | `Ctrl+G` | Open the repository in the browser |
+| `Ctrl+Shift+G` | Open the repo in lazygit |
 | `Ctrl+Y` | Copy the project path |
 | `Ctrl+N` | New project (name prompt) |
 | `Ctrl+L` | Clone a repository (URL prompt) |

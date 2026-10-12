@@ -284,7 +284,7 @@ add_avail() {
   avail+=("$c")
 }
 
-for c in "${editors[@]:-}" git wl-copy xdg-open xdg-terminal-exec omarchy-launch-browser "${NEEDED[@]:-}"; do
+for c in "${editors[@]:-}" git lazygit wl-copy xdg-open xdg-terminal-exec omarchy-launch-browser "${NEEDED[@]:-}"; do
   [[ -n $c ]] || continue
   add_avail "$c"
 done

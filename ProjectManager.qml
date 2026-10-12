@@ -21,27 +21,12 @@ Item {
   property bool scannedOnce: false
   property string statusText: ""
 
-  // "list" = normal browse; "submenu" = an action submenu (e.g. branches);
-  // "prompt" = a single-line text prompt (new project / clone / new branch).
+  // "list" = normal browse; "prompt" = a single-line text prompt (new project /
+  // clone repository).
   property string mode: "list"
-  property var submenuAll: []
-  property string submenuTitle: ""
-  property string submenuFilter: ""
-  property int submenuIndex: 0
-  property string submenuContext: ""
   property string promptTitle: ""
   property string promptText: ""
   property string promptKind: ""
-  readonly property var submenuItems: {
-    var f = root.submenuFilter.trim().toLowerCase()
-    if (!f) return root.submenuAll
-    var out = []
-    for (var i = 0; i < root.submenuAll.length; i++) {
-      var it = root.submenuAll[i]
-      if (String(it.label).toLowerCase().indexOf(f) >= 0) out.push(it)
-    }
-    return out
-  }
 
   property var config: Store.defaultConfig()
   property var scanned: []
@@ -108,9 +93,16 @@ Item {
   property int cardHeight: Math.min(root.sp(620), panel.height - Style.gapsOut * 2)
   property int rowHeight: Math.max(root.sp(56), root.fTitle + root.fCaption + root.sXs + root.sControlY * 2)
   property int actionRowHeight: Math.max(root.sp(34), root.fBody + root.sControlY * 2)
-  property int submenuRowHeight: Math.max(root.sp(30), root.fBody + root.sControlY * 2)
+  property int footerHeight: Math.max(root.sp(18), root.fCaption + root.sp(4))
 
   readonly property var currentProject: root.projectAt(root.selectedIndex)
+
+  readonly property bool hasLazygitAction: {
+    for (var i = 0; i < root.actions.length; i++) {
+      if (root.actions[i].id === "git:lazygit") return true
+    }
+    return false
+  }
 
   function projectAt(index) {
     return (index >= 0 && index < root.displayProjects.length) ? root.displayProjects[index] : null
@@ -142,7 +134,6 @@ Item {
     root.opened = false
     root.mode = "list"
     root.promptKind = ""
-    root.submenuAll = []
   }
 
   function toggle() {
@@ -300,12 +291,6 @@ Item {
     var project = root.currentProject
     if (!project) return
 
-    if (action.kind === "branches") { root.openBranches(); return }
-    if (action.kind === "new-branch") {
-      root.openPrompt("new-branch", "New branch name in " + project.name)
-      return
-    }
-
     var command = Store.commandFor(action, project, root.config)
     if (!command) return
 
@@ -317,65 +302,7 @@ Item {
     else if (command.shell) Quickshell.execDetached(["bash", "-lc", command.shell])
   }
 
-  // --------------------------------------------------------- submenu/prompt
-
-  function openSubmenu(title, items, context) {
-    root.mode = "submenu"
-    root.submenuTitle = title
-    root.submenuAll = items
-    root.submenuFilter = ""
-    root.submenuIndex = 0
-    root.submenuContext = context || ""
-    root.focusArea = "projects"
-    Qt.callLater(function () { keyCatcher.forceActiveFocus() })
-  }
-
-  function closeSubmenu() {
-    root.mode = "list"
-    root.submenuAll = []
-    root.submenuFilter = ""
-    root.submenuContext = ""
-  }
-
-  function openBranches() {
-    var project = root.currentProject
-    if (!project) return
-    root.statusText = "Loading branches…"
-    if (branchProc.running) branchProc.running = false
-    branchProc.command = Store.branchListArgv(project.path).argv
-    branchProc.projectPath = project.path
-    branchProc.running = true
-  }
-
-  function onBranchesFinished(raw, path) {
-    root.statusText = ""
-    var branches = Store.parseBranches(raw)
-    if (branches.length === 0) { root.statusText = "No branches"; return }
-    var items = []
-    for (var i = 0; i < branches.length; i++) {
-      items.push({
-        label: branches[i].name,
-        hint: branches[i].current ? "current" : "",
-        value: branches[i].name,
-        current: branches[i].current
-      })
-    }
-    root.openSubmenu("Switch branch", items, path)
-  }
-
-  function acceptSubmenuItem() {
-    var item = root.submenuItems[root.submenuIndex]
-    if (!item) return
-    var project = root.currentProject
-    if (!project) { root.closeSubmenu(); return }
-    if (item.current) { root.closeSubmenu(); return }
-    var action = { kind: "terminal-cmd", command: "git switch " + Store.shellQuote(item.value) }
-    var command = Store.commandFor(action, project, root.config)
-    root.recordUsage(project.path)
-    root.opened = false
-    root.mode = "list"
-    if (command && command.argv) Quickshell.execDetached(command.argv)
-  }
+  // ---------------------------------------------------------------- prompt
 
   function openPrompt(kind, title) {
     root.mode = "prompt"
@@ -408,14 +335,6 @@ Item {
       Quickshell.execDetached(clone.argv)
       root.opened = false
       root.rescanSoon()
-    } else if (kind === "new-branch") {
-      var project = root.currentProject
-      if (!project) return
-      var action = { kind: "terminal-cmd", command: "git switch -c " + Store.shellQuote(value) }
-      var command = Store.commandFor(action, project, root.config)
-      root.recordUsage(project.path)
-      root.opened = false
-      if (command && command.argv) Quickshell.execDetached(command.argv)
     }
   }
 
@@ -430,6 +349,15 @@ Item {
   function runActionOfKind(kind) {
     for (var i = 0; i < root.actions.length; i++) {
       if (root.actions[i].kind === kind && root.actions[i].enabled !== false) {
+        root.runAction(root.actions[i])
+        return
+      }
+    }
+  }
+
+  function runActionById(id) {
+    for (var i = 0; i < root.actions.length; i++) {
+      if (root.actions[i].id === id && root.actions[i].enabled !== false) {
         root.runAction(root.actions[i])
         return
       }
@@ -522,18 +450,6 @@ Item {
     onExited: root.scanning = false
   }
 
-  Process {
-    id: branchProc
-    property string projectPath: ""
-    stdout: StdioCollector {
-      waitForEnd: true
-      onStreamFinished: root.onBranchesFinished(text, branchProc.projectPath)
-    }
-    stderr: SplitParser {
-      onRead: function (line) { console.log("project-manager: " + line) }
-    }
-  }
-
   Timer {
     id: rescanTimer
     interval: 2200
@@ -599,36 +515,6 @@ Item {
             return
           }
 
-          if (root.mode === "submenu") {
-            var count = root.submenuItems.length
-            if (event.key === Qt.Key_Escape) {
-              root.closeSubmenu()
-            } else if (event.key === Qt.Key_Up) {
-              if (count > 0) root.submenuIndex = (root.submenuIndex - 1 + count) % count
-            } else if (event.key === Qt.Key_Down) {
-              if (count > 0) root.submenuIndex = (root.submenuIndex + 1) % count
-            } else if (event.key === Qt.Key_PageUp) {
-              if (count > 0) root.submenuIndex = Math.max(0, root.submenuIndex - 6)
-            } else if (event.key === Qt.Key_PageDown) {
-              if (count > 0) root.submenuIndex = Math.min(count - 1, root.submenuIndex + 6)
-            } else if (event.key === Qt.Key_Home) {
-              root.submenuIndex = 0
-            } else if (event.key === Qt.Key_End) {
-              root.submenuIndex = Math.max(0, count - 1)
-            } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
-              root.acceptSubmenuItem()
-            } else if (event.key === Qt.Key_Backspace) {
-              root.submenuFilter = root.submenuFilter.slice(0, -1)
-              root.submenuIndex = 0
-            } else if (event.text && event.text.length === 1 && event.text.charCodeAt(0) >= 32
-                       && event.text.charCodeAt(0) !== 127 && !(ctrlMod || altMod || metaMod)) {
-              root.submenuFilter = root.submenuFilter + event.text
-              root.submenuIndex = 0
-            }
-            event.accepted = true
-            return
-          }
-
           if (event.key === Qt.Key_Escape) {
             if (root.filterText) root.setFilter("")
             else if (root.focusArea === "actions") { root.focusArea = "projects"; root.actionIndex = 0 }
@@ -686,8 +572,9 @@ Item {
           } else if (event.key === Qt.Key_L && (event.modifiers & Qt.ControlModifier)) {
             root.openPrompt("clone", "Clone repository URL")
             event.accepted = true
-          } else if (event.key === Qt.Key_B && (event.modifiers & Qt.ControlModifier)) {
-            root.openBranches()
+          } else if (event.key === Qt.Key_G && (event.modifiers & Qt.ControlModifier)
+                     && (event.modifiers & Qt.ShiftModifier)) {
+            root.runActionById("git:lazygit")
             event.accepted = true
           } else if (event.key === Qt.Key_G && (event.modifiers & Qt.ControlModifier)) {
             root.runActionOfKind("github")
@@ -755,7 +642,7 @@ Item {
 
         Item {
           width: parent.width
-          height: parent.height - root.headerHeight - root.contentSpacing
+          height: parent.height - root.headerHeight - root.footerHeight - root.contentSpacing * 2
 
           Row {
             anchors.fill: parent
@@ -954,9 +841,9 @@ Item {
                 Text {
                   textFormat: Text.PlainText
                   width: parent.width
-                  text: root.mode === "submenu"
-                    ? (root.submenuTitle + (root.submenuFilter ? "  ·  " + root.submenuFilter : ""))
-                    : (root.mode === "prompt" ? root.promptTitle : (root.currentProject ? root.currentProject.name : ""))
+                  text: root.mode === "prompt"
+                    ? root.promptTitle
+                    : (root.currentProject ? root.currentProject.name : "")
                   color: root.foreground
                   font.family: root.fontFamily
                   font.pixelSize: root.fHeading
@@ -1105,69 +992,6 @@ Item {
                     }
                   }
                 }
-                ListView {
-                  id: submenuList
-                  width: parent.width
-                  height: Math.max(0, parent.height - y - root.sp(22))
-                  visible: root.mode === "submenu"
-                  model: root.submenuItems
-                  clip: true
-                  spacing: root.sp(3)
-                  boundsBehavior: Flickable.StopAtBounds
-
-                  delegate: Rectangle {
-                    id: submenuRow
-                    required property int index
-                    required property var modelData
-
-                    readonly property bool hasCursor: index === root.submenuIndex
-
-                    width: ListView.view.width
-                    height: root.submenuRowHeight
-                    radius: root.cornerRadius
-                    color: hasCursor ? root.selectedBackground : "transparent"
-
-                    Row {
-                      anchors.fill: parent
-                      anchors.leftMargin: root.sp(10)
-                      anchors.rightMargin: root.sp(10)
-                      spacing: root.sp(8)
-
-                      Text {
-                        textFormat: Text.PlainText
-                        anchors.verticalCenter: parent.verticalCenter
-                        width: parent.width - submenuHint.width - parent.spacing
-                        text: submenuRow.modelData.label
-                        color: submenuRow.hasCursor ? root.selectedText : root.foreground
-                        font.family: root.fontFamily
-                        font.pixelSize: root.fBody
-                        elide: Text.ElideRight
-                      }
-
-                      Text {
-                        id: submenuHint
-                        textFormat: Text.PlainText
-                        anchors.verticalCenter: parent.verticalCenter
-                        text: submenuRow.modelData.hint || ""
-                        color: root.foreground
-                        opacity: 0.5
-                        font.family: root.fontFamily
-                        font.pixelSize: root.fCaption
-                      }
-                    }
-
-                    MouseArea {
-                      anchors.fill: parent
-                      hoverEnabled: true
-                      cursorShape: Qt.PointingHandCursor
-                      onEntered: root.submenuIndex = submenuRow.index
-                      onClicked: {
-                        root.submenuIndex = submenuRow.index
-                        root.acceptSubmenuItem()
-                      }
-                    }
-                  }
-                }
 
                 Item {
                   width: parent.width
@@ -1202,25 +1026,32 @@ Item {
                   }
                 }
               }
-              Text {
-                textFormat: Text.PlainText
-                anchors.left: parent.left
-                anchors.leftMargin: root.contentMargin
-                anchors.right: parent.right
-                anchors.bottom: parent.bottom
-                text: root.mode === "submenu"
-                  ? "Enter switch  ·  type to filter  ·  Esc back"
-                  : (root.mode === "prompt"
-                    ? "Enter confirm  ·  Esc cancel"
-                    : "Enter open  ·  \u21e7Enter terminal  ·  \u2325Enter files  ·  Ctrl B branches  ·  Ctrl E editor  ·  Ctrl N new  ·  Ctrl L clone  ·  Ctrl R rescan")
-                color: root.foreground
-                opacity: 0.4
-                font.family: root.fontFamily
-                font.pixelSize: root.fCaption
-                elide: Text.ElideRight
-              }
             }
           }
+        }
+
+        // ------------------------------------------------------------ footer
+        Text {
+          id: footer
+          textFormat: Text.PlainText
+          width: parent.width
+          height: root.footerHeight
+          verticalAlignment: Text.AlignVCenter
+          text: {
+            if (root.mode === "prompt") return "Enter confirm  ·  Esc cancel"
+            if (root.focusArea === "actions") {
+              var s = "\u2191\u2193 move  ·  Enter run"
+              if (root.hasLazygitAction) s += "  ·  Ctrl \u21e7G lazygit"
+              s += "  ·  Ctrl G browser  ·  Ctrl Y copy  ·  \u2190 project list  ·  Esc close"
+              return s
+            }
+            return "type to search  ·  \u2191\u2193 move  ·  Enter open  ·  \u21e7Enter terminal  ·  \u2325Enter files  ·  \u2192 actions  ·  Ctrl N new  ·  Ctrl L clone  ·  Ctrl R rescan"
+          }
+          color: root.foreground
+          opacity: 0.45
+          font.family: root.fontFamily
+          font.pixelSize: root.fCaption
+          elide: Text.ElideRight
         }
       }
     }

@@ -500,13 +500,6 @@ function remoteToWebUrl(remote) {
   return ""
 }
 
-function gitWebBranchUrl(remote, branch) {
-  var base = remoteToWebUrl(remote)
-  var b = String(branch || "").trim()
-  if (!base || !b || b === "(detached)") return ""
-  return base.replace(/\/+$/, "") + "/tree/" + encodeURIComponent(b)
-}
-
 function projectRow(project) {
   var git = project.git
   return {
@@ -602,80 +595,15 @@ function actionsFor(project, config, available, effectiveEditorId) {
     enabled: commandAvailable("wl-copy", available)
   })
 
-  if (project.git && project.git.remote) {
+  if (project.git) {
     actions.push({
-      id: "copy-remote",
-      kind: "copy-remote",
-      label: "Copy clone URL",
-      hint: "",
-      enabled: commandAvailable("wl-copy", available),
-      text: project.git.remote
-    })
-  }
-
-  var git = project.git
-  if (git) {
-    actions.push({
-      id: "git:fetch",
+      id: "git:lazygit",
       kind: "terminal-cmd",
-      label: "Git: fetch",
-      hint: "",
-      enabled: commandAvailable("git", available),
-      command: "git fetch --all --prune"
+      label: "Open in lazygit",
+      hint: "Ctrl \u21e7G",
+      enabled: commandAvailable("lazygit", available),
+      command: "lazygit"
     })
-    actions.push({
-      id: "git:pull",
-      kind: "terminal-cmd",
-      label: git.behind > 0 ? "Git: pull (" + git.behind + " behind)" : "Git: pull",
-      hint: "",
-      enabled: commandAvailable("git", available),
-      command: "git pull --ff-only"
-    })
-    actions.push({
-      id: "git:branch",
-      kind: "branches",
-      label: "Git: switch branch\u2026",
-      hint: "",
-      enabled: commandAvailable("git", available)
-    })
-    actions.push({
-      id: "git:new-branch",
-      kind: "new-branch",
-      label: "Git: new branch\u2026",
-      hint: "",
-      enabled: commandAvailable("git", available)
-    })
-    if (commandAvailable("lazygit", available)) {
-      actions.push({
-        id: "git:lazygit",
-        kind: "terminal-cmd",
-        label: "Git: open in lazygit",
-        hint: "",
-        enabled: true,
-        command: "lazygit"
-      })
-    }
-    if (commandAvailable("tig", available)) {
-      actions.push({
-        id: "git:tig",
-        kind: "terminal-cmd",
-        label: "Git: open in tig",
-        hint: "",
-        enabled: true,
-        command: "tig"
-      })
-    }
-    var branchUrl = gitWebBranchUrl(git.remote, git.branch)
-    if (branchUrl) {
-      actions.push({
-        id: "git:branch-url",
-        kind: "github",
-        label: "Git: open branch in browser",
-        hint: "",
-        enabled: true,
-        url: branchUrl
-      })
-    }
   }
 
   var tasks = project.tasks || []
@@ -730,15 +658,9 @@ function commandFor(action, project, config) {
   if (action.kind === "copy")
     return { shell: "printf %s " + shellQuote(path) + " | wl-copy" }
 
-  if (action.kind === "copy-remote") {
-    var text = action.text || (project && project.git ? project.git.remote : "")
-    if (!text) return null
-    return { shell: "printf %s " + shellQuote(text) + " | wl-copy" }
-  }
-
   if (action.kind === "terminal-cmd") {
     if (!action.command) return null
-    return terminalArgv(path, action.command, "org.omarchy.project-manager.task")
+    return terminalArgv(path, "cd " + shellQuote(path) + " && " + action.command, "org.omarchy.project-manager.task")
   }
 
   if (action.kind === "task") {
@@ -762,31 +684,6 @@ function terminalArgv(dir, command, appId) {
       "-e", "bash", "-lc", command + hold
     ]
   }
-}
-
-// --------------------------------------------------------------- branches
-
-function parseBranches(raw) {
-  var lines = String(raw || "").split("\n")
-  var out = []
-  for (var i = 0; i < lines.length; i++) {
-    var line = lines[i]
-    if (!line.trim()) continue
-    var parts = line.split("\t")
-    var name = String(parts[0] || "").trim()
-    if (!name || name.indexOf("->") >= 0) continue
-    var current = String(parts[1] || "").indexOf("*") >= 0
-    out.push({ name: name, current: current })
-  }
-  out.sort(function (a, b) {
-    if (a.current !== b.current) return a.current ? -1 : 1
-    return a.name.localeCompare(b.name)
-  })
-  return out
-}
-
-function branchListArgv(path) {
-  return { argv: ["git", "-C", path, "branch", "--format=%(refname:short)\t%(HEAD)"] }
 }
 
 // --------------------------------------------------------- clone / create
@@ -859,7 +756,6 @@ if (typeof module !== "undefined") {
     filterProjects: filterProjects,
     gitSummary: gitSummary,
     remoteToWebUrl: remoteToWebUrl,
-    gitWebBranchUrl: gitWebBranchUrl,
     projectRow: projectRow,
     fuzzyScore: fuzzyScore,
     projectMatchScore: projectMatchScore,
@@ -873,8 +769,6 @@ if (typeof module !== "undefined") {
     actionsFor: actionsFor,
     commandFor: commandFor,
     terminalArgv: terminalArgv,
-    parseBranches: parseBranches,
-    branchListArgv: branchListArgv,
     defaultRoot: defaultRoot,
     sanitizeProjectName: sanitizeProjectName,
     cloneCommand: cloneCommand,
