@@ -1,9 +1,10 @@
 {
   "schemaVersion": 1,
-  "id": "anky.project_manager",
+  "id": "io.github.anky209e.project-manager",
   "name": "Project Manager",
   "version": "1.0.0",
   "author": "anky209e",
+  "license": "MIT",
   "description": "A keyboard-driven project launcher: open projects in your editors, terminals, and file manager, see git branch/status, run per-project tasks, jump to the repo, and copy paths.",
   "kinds": [
     "overlay"

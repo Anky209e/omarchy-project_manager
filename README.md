@@ -1,11 +1,11 @@
 # Project Manager
 
-Anky209e/omarchy-project_manager
-
 A keyboard-driven project launcher for the [Omarchy](https://omarchy.org) shell.
 Summon an overlay, type to filter your projects, and open any of them in your
 editor, a terminal, or your file manager — with live git status, one-key jumps
 to the repo, per-project tasks, and frecency ranking of what you actually use.
+
+![Project Manager overlay](preview.png)
 
 It is an Omarchy *overlay* plugin (same kind as the built-in clipboard) whose
 styling derives from `omarchy.clipboard`, so it shares the `[menu]` theme
@@ -48,44 +48,90 @@ declared — so the clipboard's own `SUPER + CTRL + V` keeps working.
   visible) with `Ctrl+1`..`Ctrl+9`.
 - **Frecency** — the projects you open most, most recently, float to the top.
 
+## Install
+
+Add the plugin straight from GitHub:
+
+```sh
+omarchy plugin add https://github.com/Anky209e/omarchy-project_manager.git --enable
+```
+
+`omarchy plugin add` clones the repo into
+`~/.config/omarchy/plugins/io.github.anky209e.project-manager`, validates the
+manifest, and (with `--enable`) turns it on. It never runs anything from the
+plugin and never asks for `sudo`.
+
+> **Plugins run unsandboxed.** A plugin is code that runs inside the long-lived
+> Omarchy shell process with your user permissions. Only install repositories
+> you trust, and read them first if you are unsure.
+
+If you installed without `--enable`, enable it later:
+
+```sh
+omarchy plugin enable io.github.anky209e.project-manager
+```
+
+### Bind a key
+
+The plugin has no bar widget — it is summoned through the shell. Add a binding
+to `~/.config/hypr/bindings.lua`:
+
+```lua
+o.bind("SUPER + ALT + P", "Project manager", "omarchy-shell shell toggle io.github.anky209e.project-manager")
+```
+
+Then reload Hyprland (`hyprctl reload`). The same `toggle` command can be bound
+anywhere, run from a script, or invoked directly.
+
+Optionally, give the overlay a stable layer namespace rule in
+`~/.config/hypr/looknfeel.lua` so it animates/rounds like the rest of the shell
+— the overlay uses the namespace `omarchy-project-manager`.
+
+### Update
+
+```sh
+omarchy plugin update io.github.anky209e.project-manager
+```
+
+### Remove
+
+```sh
+omarchy plugin remove io.github.anky209e.project-manager
+```
+
+Removal deletes the plugin folder only. Your config
+(`~/.config/omarchy/project-manager.json`) and frecency state
+(`~/.local/state/omarchy/project-manager/usage.json`) are left untouched.
+
 ## Requirements
 
-- Omarchy shell with third-party plugins enabled.
+- Omarchy shell with third-party plugins enabled (Quattro).
 - `bash`, `git`, `jq` (for the scan helper).
 - For actions: `wl-copy`, `xdg-open`, `xdg-terminal-exec`,
   `omarchy-launch-browser`. Actions whose tool is missing are disabled, not
   broken.
 
-## Install (development)
+The plugin is self-contained: no install hook, no `sudo`, no network access of
+its own. It shells out only to the tools listed above (and to the editors /
+tasks you configure).
 
-The plugin lives in this repo and is linked into the user plugin directory so
-edits here are picked up by the shell:
+## Development
+
+Clone the repo and symlink it into your user plugin directory so edits are live:
 
 ```sh
-git clone <this-repo> ~/Projects/anky.project_manager
-ln -sfn ~/Projects/anky.project_manager ~/.config/omarchy/plugins/anky.project_manager
-omarchy plugin list          # should show anky.project_manager
-omarchy plugin validate .    # validates the manifest
+git clone https://github.com/Anky209e/omarchy-project_manager.git ~/Projects/omarchy-project_manager
+ln -sfn ~/Projects/omarchy-project_manager ~/.config/omarchy/plugins/io.github.anky209e.project-manager
+omarchy-shell shell rescanPlugins
+omarchy plugin list        # should list io.github.anky209e.project-manager
+omarchy plugin validate ~/Projects/omarchy-project_manager
+omarchy plugin enable io.github.anky209e.project-manager
 ```
-
-Enable it in `~/.config/omarchy/shell.json` by adding it to `plugins`:
-
-```json
-{ "plugins": [ { "id": "anky.project_manager" } ] }
-```
-
-Then bind it (already added to `~/.config/hypr/bindings.lua`):
-
-```lua
-o.bind("SUPER + ALT + P", "Project manager", "omarchy-shell shell toggle anky.project_manager")
-```
-
-and give the overlay layer a stable namespace rule in
-`~/.config/hypr/looknfeel.lua` (namespace `omarchy-project-manager`).
 
 > **Reloading while developing:** the plugin directory is a symlink, so the
 > shell's file watcher does not see edits. After changing any plugin file run
-> `omarchy restart shell` to pick them up.
+> `omarchy restart shell` to pick them up (`omarchy-shell shell rescanPlugins`
+> only re-reads plugin folders).
 
 ## Keybindings
 
@@ -138,8 +184,8 @@ watched — saving it reloads live. Frecency state is kept separately in
   },
   "projects": [
     {
-      "name": "anky.project_manager",
-      "path": "~/Projects/anky.project_manager",
+      "name": "omarchy-project_manager",
+      "path": "~/Projects/omarchy-project_manager",
       "editor": "nvim",
       "tags": ["omarchy", "qml"],
       "pinned": true,
@@ -189,3 +235,7 @@ Architecture: `ProjectManager.qml` owns side effects; every decision — what to
 scan, how to rank, which command to run — is delegated to `ProjectStore.js`,
 which the QML imports as `Store`. `project-manager.sh` is invoked only to do
 filesystem + git discovery in one fast pass.
+
+## License
+
+[MIT](LICENSE) © 2026 Ankit Kumar (anky209e)

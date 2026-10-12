@@ -19,8 +19,8 @@
   },
   "projects": [
     {
-      "name": "anky.project_manager",
-      "path": "~/Projects/anky.project_manager",
+      "name": "omarchy-project_manager",
+      "path": "~/Projects/omarchy-project_manager",
       "editor": "nvim",
       "tags": ["omarchy", "qml"],
       "pinned": true,

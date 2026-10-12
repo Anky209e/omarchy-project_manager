@@ -660,14 +660,14 @@ function commandFor(action, project, config) {
 
   if (action.kind === "terminal-cmd") {
     if (!action.command) return null
-    return terminalArgv(path, "cd " + shellQuote(path) + " && " + action.command, "org.omarchy.project-manager.task")
+    return terminalArgv(path, "cd " + shellQuote(path) + " && " + action.command, "io.github.anky209e.project-manager.task")
   }
 
   if (action.kind === "task") {
     if (!action.command) return null
     var cmd = "cd " + shellQuote(path) + " && " + action.command
     if (config && config.tasksInTerminal === false) return { shell: cmd }
-    return terminalArgv(path, cmd, "org.omarchy.project-manager.task")
+    return terminalArgv(path, cmd, "io.github.anky209e.project-manager.task")
   }
 
   return null
@@ -704,7 +704,7 @@ function cloneCommand(config, home, url) {
   var u = String(url || "").trim()
   if (!/^(https?:\/\/|git@|ssh:\/\/|git:\/\/|file:\/\/|\/)/.test(u)) return null
   var root = defaultRoot(config, home)
-  return terminalArgv(root, "git clone " + shellQuote(u), "org.omarchy.project-manager.clone")
+  return terminalArgv(root, "git clone " + shellQuote(u), "io.github.anky209e.project-manager.clone")
 }
 
 function newProjectCommand(config, home, name) {
