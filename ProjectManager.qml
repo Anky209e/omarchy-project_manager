@@ -45,21 +45,47 @@ Item {
   property color background: Color.menu.background
   property color foreground: Color.menu.text
   property color border: Color.menu.border
-  property var borderSpec: Border.surfaceSpec("menu", "border", border, Math.max(1, Style.space(2)))
+  property var borderSpec: Border.surfaceSpec("menu", "border", border, Math.max(1, root.sp(2)))
   property color scrim: Color.menu.scrim
   property color selectedBackground: Color.menu.selectedBackground
   property color selectedText: Color.menu.selectedText
   property color accent: Color.accent
   property color urgent: Color.urgent
-  readonly property int cornerRadius: Style.cornerRadius
+  // Per-monitor scale. The shell's global font tokens are tuned for the bar;
+  // on a larger / higher-resolution display the same pixel sizes read much
+  // smaller. Scale this overlay by logical screen height (1080p -> 1.0), or by
+  // an explicit numeric `scale` in the config file (0 = auto).
+  readonly property real uiScale: {
+    var s = root.config ? root.config.scale : 0
+    if (typeof s === "number" && s > 0) return Math.min(3, s)
+    var h = panel.screen ? panel.screen.height : 0
+    return h > 0 ? Math.max(1, Math.min(1.6, h / 1080)) : 1
+  }
+  readonly property int fTitle: Math.max(1, Math.round(Style.font.title * uiScale))
+  readonly property int fHeading: Math.max(1, Math.round(Style.font.heading * uiScale))
+  readonly property int fBody: Math.max(1, Math.round(Style.font.body * uiScale))
+  readonly property int fCaption: Math.max(1, Math.round(Style.font.caption * uiScale))
+  readonly property int fDisplay: Math.max(1, Math.round(Style.font.displayLarge * uiScale))
+  readonly property int sXs: Math.max(1, Math.round(Style.spacing.xs * uiScale))
+  readonly property int sSm: Math.max(1, Math.round(Style.spacing.sm * uiScale))
+  readonly property int sMd: Math.max(1, Math.round(Style.spacing.md * uiScale))
+  readonly property int sPanelPad: Math.max(1, Math.round(Style.spacing.panelPadding * uiScale))
+  readonly property int sControlY: Math.max(1, Math.round(Style.spacing.controlPaddingY * uiScale))
+
+  function sp(px) {
+    var v = Number(px) * uiScale * Style.effectiveSpacingScale
+    return v <= 0 ? 0 : Math.max(1, Math.round(v))
+  }
+
   property string fontFamily: Style.font.menuFamily
-  property int contentMargin: Style.spacing.panelPadding
-  property int headerHeight: Math.max(Style.space(34), Style.font.title + Style.spacing.controlPaddingY * 2)
-  property int contentSpacing: Style.spacing.md
-  property int cardWidth: Math.min(Style.space(980), panel.width - Style.gapsOut * 2)
-  property int cardHeight: Math.min(Style.space(620), panel.height - Style.gapsOut * 2)
-  property int rowHeight: Math.max(Style.space(56), Style.font.title + Style.font.caption + Style.spacing.xs + Style.spacing.controlPaddingY * 2)
-  property int actionRowHeight: Math.max(Style.space(34), Style.font.body + Style.spacing.controlPaddingY * 2)
+  readonly property int cornerRadius: Math.max(1, Math.round(Style.cornerRadius * uiScale))
+  property int contentMargin: root.sPanelPad
+  property int headerHeight: Math.max(root.sp(34), root.fTitle + root.sControlY * 2)
+  property int contentSpacing: root.sMd
+  property int cardWidth: Math.min(root.sp(980), panel.width - Style.gapsOut * 2)
+  property int cardHeight: Math.min(root.sp(620), panel.height - Style.gapsOut * 2)
+  property int rowHeight: Math.max(root.sp(56), root.fTitle + root.fCaption + root.sXs + root.sControlY * 2)
+  property int actionRowHeight: Math.max(root.sp(34), root.fBody + root.sControlY * 2)
 
   readonly property var currentProject: root.projectAt(root.selectedIndex)
 
@@ -483,13 +509,13 @@ Item {
             textFormat: Text.PlainText
             anchors.left: parent.left
             anchors.right: statusLabel.left
-            anchors.rightMargin: Style.space(12)
+            anchors.rightMargin: root.sp(12)
             anchors.verticalCenter: parent.verticalCenter
             text: root.filterText || "Search projects…"
             color: root.foreground
             opacity: root.filterText ? 1 : 0.58
             font.family: root.fontFamily
-            font.pixelSize: Style.font.heading
+            font.pixelSize: root.fHeading
             elide: Text.ElideRight
           }
 
@@ -504,7 +530,7 @@ Item {
             color: root.foreground
             opacity: 0.5
             font.family: root.fontFamily
-            font.pixelSize: Style.font.caption
+            font.pixelSize: root.fCaption
           }
         }
 
@@ -528,7 +554,7 @@ Item {
                 anchors.rightMargin: root.contentMargin
                 model: displayModel
                 clip: true
-                spacing: Style.space(4)
+                spacing: root.sp(4)
                 boundsBehavior: Flickable.StopAtBounds
 
                 delegate: Rectangle {
@@ -553,11 +579,11 @@ Item {
 
                   Row {
                     anchors.fill: parent
-                    anchors.leftMargin: Style.space(12)
-                    anchors.rightMargin: Style.space(12)
-                    anchors.topMargin: Style.space(8)
-                    anchors.bottomMargin: Style.space(8)
-                    spacing: Style.space(10)
+                    anchors.leftMargin: root.sp(12)
+                    anchors.rightMargin: root.sp(12)
+                    anchors.topMargin: root.sp(8)
+                    anchors.bottomMargin: root.sp(8)
+                    spacing: root.sp(10)
 
                     Text {
                       id: rowIcon
@@ -567,13 +593,13 @@ Item {
                       color: row.hasCursor ? root.selectedText : root.accent
                       opacity: row.hasCursor ? 1 : 0.7
                       font.family: root.fontFamily
-                      font.pixelSize: Style.font.title
+                      font.pixelSize: root.fTitle
                     }
 
                     Column {
                       width: parent.width - rowIcon.width - parent.spacing * 2 - gitInfo.width
                       anchors.verticalCenter: parent.verticalCenter
-                      spacing: Style.space(1)
+                      spacing: root.sp(1)
 
                       Text {
                         textFormat: Text.PlainText
@@ -581,7 +607,7 @@ Item {
                         text: row.name
                         color: row.hasCursor ? root.selectedText : root.foreground
                         font.family: root.fontFamily
-                        font.pixelSize: Style.font.title
+                        font.pixelSize: root.fTitle
                         elide: Text.ElideRight
                       }
 
@@ -592,7 +618,7 @@ Item {
                         color: root.foreground
                         opacity: 0.55
                         font.family: root.fontFamily
-                        font.pixelSize: Style.font.caption
+                        font.pixelSize: root.fCaption
                         elide: Text.ElideMiddle
                       }
                     }
@@ -600,7 +626,7 @@ Item {
                     Column {
                       id: gitInfo
                       anchors.verticalCenter: parent.verticalCenter
-                      spacing: Style.space(1)
+                      spacing: root.sp(1)
 
                       Text {
                         textFormat: Text.PlainText
@@ -609,7 +635,7 @@ Item {
                         color: row.dirty ? root.urgent : root.foreground
                         opacity: row.dirty ? 0.95 : 0.7
                         font.family: root.fontFamily
-                        font.pixelSize: Style.font.caption
+                        font.pixelSize: root.fCaption
                       }
 
                       Text {
@@ -619,7 +645,7 @@ Item {
                         color: root.foreground
                         opacity: 0.45
                         font.family: root.fontFamily
-                        font.pixelSize: Style.font.caption
+                        font.pixelSize: root.fCaption
                       }
                     }
                   }
@@ -644,7 +670,7 @@ Item {
 
               Column {
                 anchors.centerIn: parent
-                spacing: Style.space(8)
+                spacing: root.sp(8)
                 visible: displayModel.count === 0
 
                 Text {
@@ -652,7 +678,7 @@ Item {
                   color: root.selectedText
                   opacity: 0.8
                   font.family: root.fontFamily
-                  font.pixelSize: Style.font.displayLarge
+                  font.pixelSize: root.fDisplay
                   horizontalAlignment: Text.AlignHCenter
                   width: parent.width
                 }
@@ -665,7 +691,7 @@ Item {
                   color: root.foreground
                   opacity: 0.7
                   font.family: root.fontFamily
-                  font.pixelSize: Style.font.title
+                  font.pixelSize: root.fTitle
                   horizontalAlignment: Text.AlignHCenter
                   width: parent.width
                 }
@@ -690,7 +716,7 @@ Item {
                 anchors.fill: parent
                 anchors.leftMargin: root.contentMargin
                 anchors.rightMargin: root.contentMargin
-                spacing: Style.spacing.sm
+                spacing: root.sSm
                 visible: root.currentProject !== null
 
                 Text {
@@ -699,7 +725,7 @@ Item {
                   text: root.currentProject ? root.currentProject.name : ""
                   color: root.foreground
                   font.family: root.fontFamily
-                  font.pixelSize: Style.font.heading
+                  font.pixelSize: root.fHeading
                   elide: Text.ElideRight
                 }
 
@@ -710,7 +736,7 @@ Item {
                   color: root.foreground
                   opacity: 0.6
                   font.family: root.fontFamily
-                  font.pixelSize: Style.font.caption
+                  font.pixelSize: root.fCaption
                   elide: Text.ElideMiddle
                 }
 
@@ -725,7 +751,7 @@ Item {
                     ? root.urgent : root.foreground
                   opacity: 0.85
                   font.family: root.fontFamily
-                  font.pixelSize: Style.font.body
+                  font.pixelSize: root.fBody
                   elide: Text.ElideRight
                 }
 
@@ -737,11 +763,11 @@ Item {
                   color: root.foreground
                   opacity: 0.55
                   font.family: root.fontFamily
-                  font.pixelSize: Style.font.caption
+                  font.pixelSize: root.fCaption
                   elide: Text.ElideRight
                 }
 
-                Item { width: 1; height: Style.spacing.sm }
+                Item { width: 1; height: root.sSm }
 
                 Text {
                   textFormat: Text.PlainText
@@ -750,16 +776,16 @@ Item {
                   color: root.foreground
                   opacity: 0.5
                   font.family: root.fontFamily
-                  font.pixelSize: Style.font.caption
+                  font.pixelSize: root.fCaption
                 }
 
                 ListView {
                   id: actionList
                   width: parent.width
-                  height: Math.max(0, parent.height - y - Style.space(22))
+                  height: Math.max(0, parent.height - y - root.sp(22))
                   model: root.actions
                   clip: true
-                  spacing: Style.space(3)
+                  spacing: root.sp(3)
                   boundsBehavior: Flickable.StopAtBounds
 
                   delegate: Rectangle {
@@ -777,9 +803,9 @@ Item {
 
                     Row {
                       anchors.fill: parent
-                      anchors.leftMargin: Style.space(10)
-                      anchors.rightMargin: Style.space(10)
-                      spacing: Style.space(8)
+                      anchors.leftMargin: root.sp(10)
+                      anchors.rightMargin: root.sp(10)
+                      spacing: root.sp(8)
 
                       Text {
                         textFormat: Text.PlainText
@@ -791,7 +817,7 @@ Item {
                           : root.foreground
                         opacity: actionRow.enabled ? 1 : 0.35
                         font.family: root.fontFamily
-                        font.pixelSize: Style.font.body
+                        font.pixelSize: root.fBody
                         elide: Text.ElideRight
                       }
 
@@ -803,7 +829,7 @@ Item {
                         color: root.foreground
                         opacity: actionRow.enabled ? 0.45 : 0.2
                         font.family: root.fontFamily
-                        font.pixelSize: Style.font.caption
+                        font.pixelSize: root.fCaption
                       }
                     }
 
@@ -836,7 +862,7 @@ Item {
                 color: root.foreground
                 opacity: 0.4
                 font.family: root.fontFamily
-                font.pixelSize: Style.font.caption
+                font.pixelSize: root.fCaption
                 elide: Text.ElideRight
               }
             }

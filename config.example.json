@@ -1,6 +1,7 @@
 {
   "version": 1,
   "defaultEditor": "vscode",
+  "scale": 0,
   "discovery": {
     "enabled": true,
     "roots": ["~/Projects", "~/Work", "~/dev"],

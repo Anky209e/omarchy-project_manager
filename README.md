@@ -1,8 +1,16 @@
 # Project Manager
 
 Anky209e/omarchy-project_manager
-It is an Omarchy *overlay* plugin (same kind as the built-in clipboard), cloned
-from `omarchy.clipboard`, so it shares the `[menu]` theme tokens and styling.
+
+A keyboard-driven project launcher for the [Omarchy](https://omarchy.org) shell.
+Summon an overlay, type to filter your projects, and open any of them in your
+editor, a terminal, or your file manager — with live git status, one-key jumps
+to the repo, per-project tasks, and frecency ranking of what you actually use.
+
+It is an Omarchy *overlay* plugin (same kind as the built-in clipboard) whose
+styling derives from `omarchy.clipboard`, so it shares the `[menu]` theme
+tokens. It runs as its own plugin — the clone metadata is intentionally **not**
+declared — so the clipboard's own `SUPER + CTRL + V` keeps working.
 
 ## Features
 
@@ -91,6 +99,7 @@ watched — saving it reloads live. Frecency state is kept separately in
 {
   "version": 1,
   "defaultEditor": "vscode",
+  "scale": 0,
   "discovery": {
     "enabled": true,
     "roots": ["~/Projects", "~/Work", "~/dev"],
@@ -125,6 +134,9 @@ watched — saving it reloads live. Frecency state is kept separately in
 - **`discovery.maxDepth`** — recursion depth (minimum 1).
 - **`discovery.exclude`** — directory names to skip anywhere in the tree.
 - **`defaultEditor`** — editor id used when a project doesn't specify one.
+- **`scale`** — UI scale for the overlay. `0` (default) auto-scales by logical
+  screen height so it stays comfortable on 1440p/4K displays (`1080p` → `1.0`,
+  `1440p` → `1.33`, capped at `1.6`); set a number to force a fixed multiplier.
 - **`editors[id]`** — `{ label, command, args, kind }`. `kind` is `"gui"` (run
   directly) or `"terminal"` (run inside `xdg-terminal-exec`). `{path}` in `args`
   is replaced with the project path.

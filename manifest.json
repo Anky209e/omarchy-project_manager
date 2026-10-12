@@ -11,8 +11,5 @@
   "keepLoaded": true,
   "entryPoints": {
     "overlay": "ProjectManager.qml"
-  },
-  "omarchy": {
-    "clonedFrom": "omarchy.clipboard"
   }
 }

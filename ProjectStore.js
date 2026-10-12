@@ -33,6 +33,8 @@ function defaultConfig() {
   return {
     version: 1,
     defaultEditor: "vscode",
+    // 0 = auto (scale by screen height); otherwise a fixed multiplier.
+    scale: 0,
     discovery: {
       enabled: true,
       roots: ["~/Projects"],
@@ -143,10 +145,14 @@ function normalizeConfig(raw, home) {
   var config = {
     version: 1,
     defaultEditor: base.defaultEditor,
+    scale: 0,
     discovery: mergeDiscovery(base.discovery, parsed.discovery),
     editors: mergeEditors(base.editors, parsed.editors),
     projects: normalizeProjects(parsed.projects, home)
   }
+
+  var requestedScale = Number(parsed.scale)
+  if (isFinite(requestedScale) && requestedScale > 0) config.scale = requestedScale
 
   if (typeof parsed.defaultEditor === "string" && config.editors[parsed.defaultEditor])
     config.defaultEditor = parsed.defaultEditor
