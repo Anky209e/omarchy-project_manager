@@ -1,4 +1,5 @@
 import Quickshell
+import Quickshell.Hyprland
 import Quickshell.Io
 import Quickshell.Wayland
 import QtQuick
@@ -12,6 +13,7 @@ Item {
   property string omarchyPath: Quickshell.env("OMARCHY_PATH")
   property string home: Quickshell.env("HOME")
   property bool opened: false
+  property var targetScreen: null
   property string filterText: ""
   property int selectedIndex: 0
   property int actionIndex: 0
@@ -108,7 +110,21 @@ Item {
     return (index >= 0 && index < root.displayProjects.length) ? root.displayProjects[index] : null
   }
 
+  function focusedScreen() {
+    var screens = Quickshell.screens
+    if (!screens || screens.length === 0) return null
+    var monitor = Hyprland.focusedMonitor
+    var name = monitor ? String(monitor.name || "") : ""
+    if (name) {
+      for (var i = 0; i < screens.length; i++) {
+        if (String(screens[i].name) === name) return screens[i]
+      }
+    }
+    return screens[0]
+  }
+
   function open(payloadJson) {
+    root.targetScreen = root.focusedScreen()
     root.opened = true
     root.filterText = ""
     root.selectedIndex = 0
@@ -460,6 +476,7 @@ Item {
   PanelWindow {
     id: panel
     visible: root.opened
+    screen: root.targetScreen
     anchors { top: true; bottom: true; left: true; right: true }
     color: "transparent"
     WlrLayershell.namespace: "omarchy-project-manager"
