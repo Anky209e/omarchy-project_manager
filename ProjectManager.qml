@@ -21,6 +21,28 @@ Item {
   property bool scannedOnce: false
   property string statusText: ""
 
+  // "list" = normal browse; "submenu" = an action submenu (e.g. branches);
+  // "prompt" = a single-line text prompt (new project / clone / new branch).
+  property string mode: "list"
+  property var submenuAll: []
+  property string submenuTitle: ""
+  property string submenuFilter: ""
+  property int submenuIndex: 0
+  property string submenuContext: ""
+  property string promptTitle: ""
+  property string promptText: ""
+  property string promptKind: ""
+  readonly property var submenuItems: {
+    var f = root.submenuFilter.trim().toLowerCase()
+    if (!f) return root.submenuAll
+    var out = []
+    for (var i = 0; i < root.submenuAll.length; i++) {
+      var it = root.submenuAll[i]
+      if (String(it.label).toLowerCase().indexOf(f) >= 0) out.push(it)
+    }
+    return out
+  }
+
   property var config: Store.defaultConfig()
   property var scanned: []
   property var projects: []
@@ -86,6 +108,7 @@ Item {
   property int cardHeight: Math.min(root.sp(620), panel.height - Style.gapsOut * 2)
   property int rowHeight: Math.max(root.sp(56), root.fTitle + root.fCaption + root.sXs + root.sControlY * 2)
   property int actionRowHeight: Math.max(root.sp(34), root.fBody + root.sControlY * 2)
+  property int submenuRowHeight: Math.max(root.sp(30), root.fBody + root.sControlY * 2)
 
   readonly property var currentProject: root.projectAt(root.selectedIndex)
 
@@ -100,6 +123,7 @@ Item {
     root.actionIndex = 0
     root.focusArea = "projects"
     root.cursorActive = true
+    root.mode = "list"
     root.disarmPointer()
 
     if (payloadJson) {
@@ -116,6 +140,9 @@ Item {
 
   function close() {
     root.opened = false
+    root.mode = "list"
+    root.promptKind = ""
+    root.submenuAll = []
   }
 
   function toggle() {
@@ -173,6 +200,8 @@ Item {
         name: row.name,
         path: row.path,
         editorLabel: row.editorLabel,
+        icon: row.icon,
+        typeLabel: row.typeLabel,
         gitText: row.gitText,
         branch: row.branch,
         dirty: row.dirty,
@@ -271,14 +300,127 @@ Item {
     var project = root.currentProject
     if (!project) return
 
+    if (action.kind === "branches") { root.openBranches(); return }
+    if (action.kind === "new-branch") {
+      root.openPrompt("new-branch", "New branch name in " + project.name)
+      return
+    }
+
     var command = Store.commandFor(action, project, root.config)
     if (!command) return
 
     root.recordUsage(project.path)
     root.opened = false
+    root.mode = "list"
 
     if (command.argv) Quickshell.execDetached(command.argv)
     else if (command.shell) Quickshell.execDetached(["bash", "-lc", command.shell])
+  }
+
+  // --------------------------------------------------------- submenu/prompt
+
+  function openSubmenu(title, items, context) {
+    root.mode = "submenu"
+    root.submenuTitle = title
+    root.submenuAll = items
+    root.submenuFilter = ""
+    root.submenuIndex = 0
+    root.submenuContext = context || ""
+    root.focusArea = "projects"
+    Qt.callLater(function () { keyCatcher.forceActiveFocus() })
+  }
+
+  function closeSubmenu() {
+    root.mode = "list"
+    root.submenuAll = []
+    root.submenuFilter = ""
+    root.submenuContext = ""
+  }
+
+  function openBranches() {
+    var project = root.currentProject
+    if (!project) return
+    root.statusText = "Loading branches…"
+    if (branchProc.running) branchProc.running = false
+    branchProc.command = Store.branchListArgv(project.path).argv
+    branchProc.projectPath = project.path
+    branchProc.running = true
+  }
+
+  function onBranchesFinished(raw, path) {
+    root.statusText = ""
+    var branches = Store.parseBranches(raw)
+    if (branches.length === 0) { root.statusText = "No branches"; return }
+    var items = []
+    for (var i = 0; i < branches.length; i++) {
+      items.push({
+        label: branches[i].name,
+        hint: branches[i].current ? "current" : "",
+        value: branches[i].name,
+        current: branches[i].current
+      })
+    }
+    root.openSubmenu("Switch branch", items, path)
+  }
+
+  function acceptSubmenuItem() {
+    var item = root.submenuItems[root.submenuIndex]
+    if (!item) return
+    var project = root.currentProject
+    if (!project) { root.closeSubmenu(); return }
+    if (item.current) { root.closeSubmenu(); return }
+    var action = { kind: "terminal-cmd", command: "git switch " + Store.shellQuote(item.value) }
+    var command = Store.commandFor(action, project, root.config)
+    root.recordUsage(project.path)
+    root.opened = false
+    root.mode = "list"
+    if (command && command.argv) Quickshell.execDetached(command.argv)
+  }
+
+  function openPrompt(kind, title) {
+    root.mode = "prompt"
+    root.promptKind = kind
+    root.promptTitle = title
+    root.promptText = ""
+    Qt.callLater(function () { keyCatcher.forceActiveFocus() })
+  }
+
+  function closePrompt() {
+    root.mode = "list"
+    root.promptKind = ""
+    root.promptText = ""
+  }
+
+  function acceptPrompt() {
+    var kind = root.promptKind
+    var value = root.promptText.trim()
+    root.closePrompt()
+    if (!value) return
+
+    if (kind === "new-project") {
+      var created = Store.newProjectCommand(root.config, root.home, value)
+      if (!created) { root.statusText = "Invalid project name"; return }
+      Quickshell.execDetached(created.argv)
+      root.rescanSoon()
+    } else if (kind === "clone") {
+      var clone = Store.cloneCommand(root.config, root.home, value)
+      if (!clone) { root.statusText = "Invalid repository URL"; return }
+      Quickshell.execDetached(clone.argv)
+      root.opened = false
+      root.rescanSoon()
+    } else if (kind === "new-branch") {
+      var project = root.currentProject
+      if (!project) return
+      var action = { kind: "terminal-cmd", command: "git switch -c " + Store.shellQuote(value) }
+      var command = Store.commandFor(action, project, root.config)
+      root.recordUsage(project.path)
+      root.opened = false
+      if (command && command.argv) Quickshell.execDetached(command.argv)
+    }
+  }
+
+  function rescanSoon() {
+    rescanTimer.restart()
   }
 
   function runFirstAction() {
@@ -380,6 +522,25 @@ Item {
     onExited: root.scanning = false
   }
 
+  Process {
+    id: branchProc
+    property string projectPath: ""
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: root.onBranchesFinished(text, branchProc.projectPath)
+    }
+    stderr: SplitParser {
+      onRead: function (line) { console.log("project-manager: " + line) }
+    }
+  }
+
+  Timer {
+    id: rescanTimer
+    interval: 2200
+    repeat: false
+    onTriggered: root.runScan()
+  }
+
   PanelWindow {
     id: panel
     visible: root.opened
@@ -419,6 +580,55 @@ Item {
 
         Keys.priority: Keys.BeforeItem
         Keys.onPressed: function (event) {
+          var ctrlMod = event.modifiers & Qt.ControlModifier
+          var altMod = event.modifiers & Qt.AltModifier
+          var metaMod = event.modifiers & Qt.MetaModifier
+
+          if (root.mode === "prompt") {
+            if (event.key === Qt.Key_Escape) {
+              root.closePrompt()
+            } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
+              root.acceptPrompt()
+            } else if (event.key === Qt.Key_Backspace) {
+              root.promptText = root.promptText.slice(0, -1)
+            } else if (event.text && event.text.length === 1 && event.text.charCodeAt(0) >= 32
+                       && event.text.charCodeAt(0) !== 127 && !(ctrlMod || altMod || metaMod)) {
+              root.promptText = root.promptText + event.text
+            }
+            event.accepted = true
+            return
+          }
+
+          if (root.mode === "submenu") {
+            var count = root.submenuItems.length
+            if (event.key === Qt.Key_Escape) {
+              root.closeSubmenu()
+            } else if (event.key === Qt.Key_Up) {
+              if (count > 0) root.submenuIndex = (root.submenuIndex - 1 + count) % count
+            } else if (event.key === Qt.Key_Down) {
+              if (count > 0) root.submenuIndex = (root.submenuIndex + 1) % count
+            } else if (event.key === Qt.Key_PageUp) {
+              if (count > 0) root.submenuIndex = Math.max(0, root.submenuIndex - 6)
+            } else if (event.key === Qt.Key_PageDown) {
+              if (count > 0) root.submenuIndex = Math.min(count - 1, root.submenuIndex + 6)
+            } else if (event.key === Qt.Key_Home) {
+              root.submenuIndex = 0
+            } else if (event.key === Qt.Key_End) {
+              root.submenuIndex = Math.max(0, count - 1)
+            } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
+              root.acceptSubmenuItem()
+            } else if (event.key === Qt.Key_Backspace) {
+              root.submenuFilter = root.submenuFilter.slice(0, -1)
+              root.submenuIndex = 0
+            } else if (event.text && event.text.length === 1 && event.text.charCodeAt(0) >= 32
+                       && event.text.charCodeAt(0) !== 127 && !(ctrlMod || altMod || metaMod)) {
+              root.submenuFilter = root.submenuFilter + event.text
+              root.submenuIndex = 0
+            }
+            event.accepted = true
+            return
+          }
+
           if (event.key === Qt.Key_Escape) {
             if (root.filterText) root.setFilter("")
             else if (root.focusArea === "actions") { root.focusArea = "projects"; root.actionIndex = 0 }
@@ -469,6 +679,15 @@ Item {
             event.accepted = true
           } else if (event.key === Qt.Key_R && (event.modifiers & Qt.ControlModifier)) {
             root.runScan()
+            event.accepted = true
+          } else if (event.key === Qt.Key_N && (event.modifiers & Qt.ControlModifier)) {
+            root.openPrompt("new-project", "New project name")
+            event.accepted = true
+          } else if (event.key === Qt.Key_L && (event.modifiers & Qt.ControlModifier)) {
+            root.openPrompt("clone", "Clone repository URL")
+            event.accepted = true
+          } else if (event.key === Qt.Key_B && (event.modifiers & Qt.ControlModifier)) {
+            root.openBranches()
             event.accepted = true
           } else if (event.key === Qt.Key_G && (event.modifiers & Qt.ControlModifier)) {
             root.runActionOfKind("github")
@@ -563,6 +782,8 @@ Item {
                   required property string name
                   required property string path
                   required property string editorLabel
+                  required property string icon
+                  required property string typeLabel
                   required property string gitText
                   required property bool dirty
                   required property bool hasGit
@@ -589,7 +810,7 @@ Item {
                       id: rowIcon
                       textFormat: Text.PlainText
                       anchors.verticalCenter: parent.verticalCenter
-                      text: row.pinned ? "\uf08d" : "\uf07b"
+                      text: row.icon !== "" ? row.icon : (row.pinned ? "\uf08d" : "\uf07b")
                       color: row.hasCursor ? root.selectedText : root.accent
                       opacity: row.hasCursor ? 1 : 0.7
                       font.family: root.fontFamily
@@ -602,9 +823,9 @@ Item {
                       spacing: root.sp(1)
 
                       Text {
-                        textFormat: Text.PlainText
+                        textFormat: Text.StyledText
                         width: parent.width
-                        text: row.name
+                        text: Store.highlightHtml(row.name, root.filterText)
                         color: row.hasCursor ? root.selectedText : root.foreground
                         font.family: root.fontFamily
                         font.pixelSize: root.fTitle
@@ -631,6 +852,17 @@ Item {
                       Text {
                         textFormat: Text.PlainText
                         anchors.right: parent.right
+                        visible: row.pinned
+                        text: "\uf08d"
+                        color: row.hasCursor ? root.selectedText : root.accent
+                        opacity: 0.8
+                        font.family: root.fontFamily
+                        font.pixelSize: root.fCaption
+                      }
+
+                      Text {
+                        textFormat: Text.PlainText
+                        anchors.right: parent.right
                         text: row.gitText
                         color: row.dirty ? root.urgent : root.foreground
                         opacity: row.dirty ? 0.95 : 0.7
@@ -641,7 +873,7 @@ Item {
                       Text {
                         textFormat: Text.PlainText
                         anchors.right: parent.right
-                        text: row.editorLabel
+                        text: row.typeLabel !== "" ? row.typeLabel : row.editorLabel
                         color: root.foreground
                         opacity: 0.45
                         font.family: root.fontFamily
@@ -722,7 +954,9 @@ Item {
                 Text {
                   textFormat: Text.PlainText
                   width: parent.width
-                  text: root.currentProject ? root.currentProject.name : ""
+                  text: root.mode === "submenu"
+                    ? (root.submenuTitle + (root.submenuFilter ? "  ·  " + root.submenuFilter : ""))
+                    : (root.mode === "prompt" ? root.promptTitle : (root.currentProject ? root.currentProject.name : ""))
                   color: root.foreground
                   font.family: root.fontFamily
                   font.pixelSize: root.fHeading
@@ -732,6 +966,7 @@ Item {
                 Text {
                   textFormat: Text.PlainText
                   width: parent.width
+                  visible: root.mode === "list"
                   text: root.currentProject ? root.currentProject.path : ""
                   color: root.foreground
                   opacity: 0.6
@@ -743,7 +978,7 @@ Item {
                 Text {
                   textFormat: Text.PlainText
                   width: parent.width
-                  visible: root.currentProject && root.currentProject.git
+                  visible: root.mode === "list" && root.currentProject && root.currentProject.git
                   text: root.currentProject && root.currentProject.git
                     ? "\uf126  " + Store.gitSummary(root.currentProject.git)
                     : ""
@@ -758,10 +993,29 @@ Item {
                 Text {
                   textFormat: Text.PlainText
                   width: parent.width
-                  visible: root.currentProject && root.currentProject.tags.length > 0
+                  visible: root.mode === "list" && root.currentProject && root.currentProject.tags.length > 0
                   text: root.currentProject ? root.currentProject.tags.join("  ·  ") : ""
                   color: root.foreground
                   opacity: 0.55
+                  font.family: root.fontFamily
+                  font.pixelSize: root.fCaption
+                  elide: Text.ElideRight
+                }
+
+                Text {
+                  textFormat: Text.PlainText
+                  width: parent.width
+                  visible: root.mode === "list" && root.currentProject !== null
+                  text: {
+                    if (!root.currentProject) return ""
+                    var parts = []
+                    var tl = Store.typeLabel(root.currentProject.types)
+                    if (tl) parts.push(tl)
+                    if (root.currentProject.editorLabel) parts.push(root.currentProject.editorLabel)
+                    return parts.join("  ·  ")
+                  }
+                  color: root.foreground
+                  opacity: 0.45
                   font.family: root.fontFamily
                   font.pixelSize: root.fCaption
                   elide: Text.ElideRight
@@ -772,6 +1026,7 @@ Item {
                 Text {
                   textFormat: Text.PlainText
                   width: parent.width
+                  visible: root.mode === "list"
                   text: "Actions"
                   color: root.foreground
                   opacity: 0.5
@@ -783,6 +1038,7 @@ Item {
                   id: actionList
                   width: parent.width
                   height: Math.max(0, parent.height - y - root.sp(22))
+                  visible: root.mode === "list"
                   model: root.actions
                   clip: true
                   spacing: root.sp(3)
@@ -849,16 +1105,114 @@ Item {
                     }
                   }
                 }
-              }
+                ListView {
+                  id: submenuList
+                  width: parent.width
+                  height: Math.max(0, parent.height - y - root.sp(22))
+                  visible: root.mode === "submenu"
+                  model: root.submenuItems
+                  clip: true
+                  spacing: root.sp(3)
+                  boundsBehavior: Flickable.StopAtBounds
 
-              // Footer shortcuts
+                  delegate: Rectangle {
+                    id: submenuRow
+                    required property int index
+                    required property var modelData
+
+                    readonly property bool hasCursor: index === root.submenuIndex
+
+                    width: ListView.view.width
+                    height: root.submenuRowHeight
+                    radius: root.cornerRadius
+                    color: hasCursor ? root.selectedBackground : "transparent"
+
+                    Row {
+                      anchors.fill: parent
+                      anchors.leftMargin: root.sp(10)
+                      anchors.rightMargin: root.sp(10)
+                      spacing: root.sp(8)
+
+                      Text {
+                        textFormat: Text.PlainText
+                        anchors.verticalCenter: parent.verticalCenter
+                        width: parent.width - submenuHint.width - parent.spacing
+                        text: submenuRow.modelData.label
+                        color: submenuRow.hasCursor ? root.selectedText : root.foreground
+                        font.family: root.fontFamily
+                        font.pixelSize: root.fBody
+                        elide: Text.ElideRight
+                      }
+
+                      Text {
+                        id: submenuHint
+                        textFormat: Text.PlainText
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: submenuRow.modelData.hint || ""
+                        color: root.foreground
+                        opacity: 0.5
+                        font.family: root.fontFamily
+                        font.pixelSize: root.fCaption
+                      }
+                    }
+
+                    MouseArea {
+                      anchors.fill: parent
+                      hoverEnabled: true
+                      cursorShape: Qt.PointingHandCursor
+                      onEntered: root.submenuIndex = submenuRow.index
+                      onClicked: {
+                        root.submenuIndex = submenuRow.index
+                        root.acceptSubmenuItem()
+                      }
+                    }
+                  }
+                }
+
+                Item {
+                  width: parent.width
+                  height: Math.max(0, parent.height - y - root.sp(22))
+                  visible: root.mode === "prompt"
+
+                  Rectangle {
+                    id: promptBox
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.top: parent.top
+                    height: root.actionRowHeight
+                    radius: root.cornerRadius
+                    color: Util.alpha(root.foreground, 0.08)
+                    border.width: Style.normalBorderWidth
+                    border.color: Util.alpha(root.border, 0.5)
+
+                    Text {
+                      textFormat: Text.PlainText
+                      anchors.left: parent.left
+                      anchors.leftMargin: root.sp(10)
+                      anchors.right: parent.right
+                      anchors.rightMargin: root.sp(10)
+                      anchors.verticalCenter: parent.verticalCenter
+                      text: root.promptText.length > 0 ? root.promptText : "Type and press Enter…"
+                      color: root.foreground
+                      opacity: root.promptText.length > 0 ? 1 : 0.4
+                      font.family: root.fontFamily
+                      font.pixelSize: root.fBody
+                      elide: Text.ElideRight
+                    }
+                  }
+                }
+              }
               Text {
                 textFormat: Text.PlainText
                 anchors.left: parent.left
                 anchors.leftMargin: root.contentMargin
                 anchors.right: parent.right
                 anchors.bottom: parent.bottom
-                text: "Enter open  ·  \u21e7Enter terminal  ·  \u2325Enter files  ·  Ctrl E editor  ·  Ctrl G GitHub  ·  Ctrl Y copy  ·  Ctrl R rescan"
+                text: root.mode === "submenu"
+                  ? "Enter switch  ·  type to filter  ·  Esc back"
+                  : (root.mode === "prompt"
+                    ? "Enter confirm  ·  Esc cancel"
+                    : "Enter open  ·  \u21e7Enter terminal  ·  \u2325Enter files  ·  Ctrl B branches  ·  Ctrl E editor  ·  Ctrl N new  ·  Ctrl L clone  ·  Ctrl R rescan")
                 color: root.foreground
                 opacity: 0.4
                 font.family: root.fontFamily

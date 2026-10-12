@@ -6,7 +6,9 @@
 # both discovered repos and explicitly configured projects, and reports which
 # external commands are available. Emits a single JSON object on stdout:
 #
-#   { "projects": [ { "name", "path", "godot": bool, "git": {branch,dirty,ahead,behind,remote}|null } ],
+#   { "projects": [ { "name", "path", "godot": bool, "types": [...],
+#                     "tasks": [ {name,command,requires} ],
+#                     "git": {branch,dirty,ahead,behind,remote}|null } ],
 #     "availableCommands": [ ... ] }
 #
 # usage:
@@ -139,6 +141,119 @@ git_json() {
     '{branch:$branch, dirty:($dirty == 1), ahead:$ahead, behind:$behind, remote:$remote}'
 }
 
+# ---------------------------------------------------- project type & tasks
+
+has() { [[ -e "$1/$2" ]]; }
+
+# Commands required by generated tasks; added to the availability scan so the
+# overlay can grey out tasks whose tool is not installed.
+declare -a NEEDED=()
+declare -a TASK_OBJS=()
+
+task() {
+  TASK_OBJS+=("$(jq -cn --arg n "$1" --arg c "$2" --arg r "${3:-}" '{name:$n, command:$c, requires:$r}')")
+  [[ -n ${3:-} ]] && NEEDED+=("$3")
+}
+
+detect_types() {
+  local d="$1" out=()
+  has "$d" project.godot && out+=(godot)
+  has "$d" package.json && out+=(node)
+  has "$d" Cargo.toml && out+=(rust)
+  has "$d" go.mod && out+=(go)
+  { has "$d" pyproject.toml || has "$d" uv.lock || has "$d" requirements.txt || has "$d" setup.py; } && out+=(python)
+  { has "$d" flake.nix || has "$d" default.nix; } && out+=(nix)
+  has "$d" CMakeLists.txt && out+=(cmake)
+  has "$d" Gemfile && out+=(ruby)
+  has "$d" composer.json && out+=(php)
+  if ((${#out[@]} == 0)); then
+    has "$d" Makefile && out+=(make)
+    { has "$d" justfile || has "$d" Justfile; } && out+=(just)
+  fi
+  if ((${#out[@]})); then printf '%s\n' "${out[@]}" | jq -R . | jq -sc .; else printf '[]'; fi
+}
+
+node_tasks() {
+  local d="$1" pm=npm scripts s i=0
+  has "$d" bun.lockb && pm=bun
+  has "$d" pnpm-lock.yaml && pm=pnpm
+  has "$d" yarn.lock && pm=yarn
+  task "Install dependencies" "$pm install" "$pm"
+  [[ -f $d/package.json ]] || return 0
+  scripts=$(jq -r '.scripts // {} | keys[]' "$d/package.json" 2>/dev/null || true)
+  [[ -n $scripts ]] || return 0
+  local ordered=() prio="dev start build test lint format typecheck check serve watch preview"
+  for s in $prio; do grep -qxF "$s" <<<"$scripts" && ordered+=("$s"); done
+  while IFS= read -r s; do
+    [[ -n $s ]] || continue
+    [[ " ${ordered[*]:-} " == *" $s "* ]] && continue
+    ordered+=("$s")
+  done <<<"$scripts"
+  for s in "${ordered[@]}"; do
+    ((i >= 8)) && break
+    task "$pm run $s" "$pm run $s" "$pm"
+    ((i++))
+  done
+}
+
+make_tasks() {
+  local d="$1" t i=0
+  task "make (default)" "make" make
+  while IFS= read -r t; do
+    [[ -n $t ]] || continue
+    ((i >= 6)) && break
+    task "make $t" "make $t" make
+    ((i++))
+  done < <(grep -oE '^[a-zA-Z0-9][a-zA-Z0-9_.-]*:' "$d/Makefile" 2>/dev/null | sed 's/:$//' | sort -u)
+}
+
+just_tasks() {
+  local d="$1" f t i=0
+  for f in justfile Justfile .justfile; do [[ -f $d/$f ]] && break; done
+  [[ -f ${d:-}/$f ]] || return 0
+  while IFS= read -r t; do
+    [[ -n $t ]] || continue
+    ((i >= 8)) && break
+    task "just $t" "just $t" just
+    ((i++))
+  done < <(grep -oE '^[a-zA-Z_][a-zA-Z0-9_-]*' "$d/$f" 2>/dev/null | sort -u)
+}
+
+detect_tasks() {
+  local d="$1" t
+  TASK_OBJS=()
+  for t in $(detect_types "$d" | jq -r '.[]' 2>/dev/null); do
+    case "$t" in
+    node) node_tasks "$d" ;;
+    make) make_tasks "$d" ;;
+    just) just_tasks "$d" ;;
+    rust)
+      task "cargo build" "cargo build" cargo
+      task "cargo run" "cargo run" cargo
+      task "cargo test" "cargo test" cargo
+      task "cargo clippy" "cargo clippy" cargo
+      ;;
+    go)
+      task "go build" "go build ./..." go
+      task "go run" "go run ." go
+      task "go test" "go test ./..." go
+      ;;
+    python)
+      if has "$d" uv.lock || has "$d" pyproject.toml; then task "uv run pytest" "uv run pytest" uv
+      else task "pytest" "pytest" pytest; fi
+      ;;
+    nix)
+      task "nix develop" "nix develop" nix
+      task "nix build" "nix build" nix
+      ;;
+    cmake) task "CMake build" "cmake -S . -B build && cmake --build build" cmake ;;
+    ruby) task "bundle install" "bundle install" bundle ;;
+    php) task "composer install" "composer install" composer ;;
+    esac
+  done
+  if ((${#TASK_OBJS[@]})); then printf '%s\n' "${TASK_OBJS[@]}" | jq -s .; else printf '[]'; fi
+}
+
 tmp=$(mktemp) || exit 1
 trap 'rm -f "$tmp"' EXIT
 
@@ -147,8 +262,11 @@ while IFS= read -r real; do
   git=$(git_json "$real")
   godot=false
   [[ -f $real/project.godot ]] && godot=true
+  types=$(detect_types "$real")
+  tasks=$(detect_tasks "$real")
   jq -cn --arg name "${names[$real]}" --arg path "$real" --argjson git "$git" --argjson godot "$godot" \
-    '{name:$name, path:$path, git:$git, godot:$godot}' >>"$tmp"
+    --argjson types "$types" --argjson tasks "$tasks" \
+    '{name:$name, path:$path, git:$git, godot:$godot, types:$types, tasks:$tasks}' >>"$tmp"
 done < <(printf '%s\n' "${!seen[@]}" | sort)
 
 avail=()
@@ -166,7 +284,8 @@ add_avail() {
   avail+=("$c")
 }
 
-for c in "${editors[@]:-}" git wl-copy xdg-open xdg-terminal-exec omarchy-launch-browser; do
+for c in "${editors[@]:-}" git wl-copy xdg-open xdg-terminal-exec omarchy-launch-browser "${NEEDED[@]:-}"; do
+  [[ -n $c ]] || continue
   add_avail "$c"
 done
 

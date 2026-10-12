@@ -17,6 +17,13 @@ declared — so the clipboard's own `SUPER + CTRL + V` keeps working.
 - **Discovery** — recursively scans configured roots (default `~/Projects`) for
   git repositories and Godot projects (`project.godot`), plus any explicit
   entries from the config file.
+- **Project types** — each project is tagged by the files it contains (Node,
+  Rust, Go, Python, Nix, CMake, Ruby, PHP, Make, Just, Godot) and shown with a
+  matching icon/label.
+- **Auto-detected tasks** — project tasks are read straight from `package.json`
+  scripts, `Makefile`/`justfile` targets, and `Cargo.toml`/`go.mod`/`pyproject`
+  markers, so most projects need no task config. Tasks with a missing tool are
+  greyed out.
 - **Omarchy default editor** — by default projects open with whichever editor
   you selected via `omarchy default editor` (through `omarchy-launch-editor`),
   so the plugin follows that choice automatically.
@@ -29,9 +36,16 @@ declared — so the clipboard's own `SUPER + CTRL + V` keeps working.
   the file manager (`Alt+Enter`).
 - **Git at a glance** — branch, dirty marker, ahead/behind counts in the list and
   detail pane.
-- **GitHub** — `Ctrl+G` opens the repository remote in the browser.
-- **Copy path** — `Ctrl+Y` puts the project path on the clipboard via `wl-copy`.
-- **Tasks** — per-project commands (e.g. "Run tests") run with `Ctrl+1`..`Ctrl+9`.
+- **Git operations** — fetch, fast-forward pull, switch/create branch (a filterable
+  picker), open in `lazygit`/`tig`, and open the branch on the web.
+- **Clone & create** — `Ctrl+L` clones a repo into your first discovery root;
+  `Ctrl+N` scaffolds a new project (`mkdir` + `git init`).
+- **Browser & clipboard** — `Ctrl+G` opens the repository remote; copy the
+  project path (`Ctrl+Y`) or the clone URL.
+- **Fuzzy search** — filter matches on name, path, tags, editor and branch as a
+  subsequence, with matches highlighted.
+- **Tasks** — auto-detected and per-project commands run in a terminal (output
+  visible) with `Ctrl+1`..`Ctrl+9`.
 - **Frecency** — the projects you open most, most recently, float to the top.
 
 ## Requirements
@@ -86,8 +100,11 @@ and give the overlay layer a stable namespace rule in
 | `Shift+Enter` | Open a terminal in the project |
 | `Alt+Enter` | Open the file manager |
 | `Ctrl+E` | Cycle editor for the current project |
+| `Ctrl+B` | Switch git branch (filterable picker) |
 | `Ctrl+G` | Open the repository in the browser |
 | `Ctrl+Y` | Copy the project path |
+| `Ctrl+N` | New project (name prompt) |
+| `Ctrl+L` | Clone a repository (URL prompt) |
 | `Ctrl+R` | Rescan projects |
 | `Ctrl+1`..`Ctrl+9` | Run the nth task |
 | `PageUp` / `PageDown`, `Home` / `End` | Jump within the list |
@@ -106,6 +123,7 @@ watched — saving it reloads live. Frecency state is kept separately in
   "version": 1,
   "defaultEditor": "omarchy",
   "scale": 0,
+  "tasksInTerminal": true,
   "discovery": {
     "enabled": true,
     "roots": ["~/Projects", "~/Work", "~/dev"],
@@ -147,6 +165,8 @@ watched — saving it reloads live. Frecency state is kept separately in
 - **`scale`** — UI scale for the overlay. `0` (default) auto-scales by logical
   screen height so it stays comfortable on 1440p/4K displays (`1080p` → `1.0`,
   `1440p` → `1.33`, capped at `1.6`); set a number to force a fixed multiplier.
+- **`tasksInTerminal`** — run tasks in a terminal window so their output is
+  visible (`true`, default). Set `false` to run them detached in the background.
 - **`editors[id]`** — `{ label, command, args, kind }`. `kind` is `"gui"` (launch
   via `uwsm-app`), `"terminal"` (run inside `xdg-terminal-exec`), or `"direct"`
   (run the command as-is, e.g. a launcher wrapper). `{path}` in `args` is
@@ -161,7 +181,7 @@ watched — saving it reloads live. Frecency state is kept separately in
 | --- | --- |
 | `ProjectManager.qml` | The overlay: window, list, detail/actions pane, key handling, processes and file I/O. |
 | `ProjectStore.js` | All pure logic (config normalization, scan args, parsing, merge/rank/filter, action + command building, frecency). No Qt types, so it is unit-testable with plain `node`. |
-| `project-manager.sh` | Scan helper: walks the roots, reports git branch/dirty/ahead/behind and remote, flags Godot projects (`project.godot`), and lists which editor/action commands exist on `$PATH`. Emits JSON. |
+| `project-manager.sh` | Scan helper: walks the roots, reports git branch/dirty/ahead/behind and remote, detects project types (`package.json`, `Cargo.toml`, `go.mod`, …) and generates tasks from `package.json` scripts / `Makefile` / `justfile` / tool markers, and lists which editor/action commands exist on `$PATH`. Emits JSON. |
 | `manifest.json` | Plugin manifest (`overlay` kind, `keepLoaded`). |
 | `config.example.json` | Sample user config. |
 

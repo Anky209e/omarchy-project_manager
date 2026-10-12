@@ -35,6 +35,8 @@ function defaultConfig() {
     defaultEditor: "omarchy",
     // 0 = auto (scale by screen height); otherwise a fixed multiplier.
     scale: 0,
+    // Run project tasks in a terminal window so their output is visible.
+    tasksInTerminal: true,
     discovery: {
       enabled: true,
       roots: ["~/Projects"],
@@ -106,12 +108,13 @@ function normalizeTasks(tasks) {
   var out = []
   var i, t
   if (isObject(tasks)) {
-    for (t in tasks) out.push({ name: t, command: String(tasks[t]) })
+    for (t in tasks) out.push({ name: t, command: String(tasks[t]), requires: "" })
   } else if (Array.isArray(tasks)) {
     for (i = 0; i < tasks.length; i++) {
       var item = tasks[i]
-      if (isObject(item) && item.name) out.push({ name: String(item.name), command: String(item.command || "") })
-      else if (typeof item === "string") out.push({ name: item, command: "" })
+      if (isObject(item) && item.name)
+        out.push({ name: String(item.name), command: String(item.command || ""), requires: String(item.requires || "") })
+      else if (typeof item === "string") out.push({ name: item, command: "", requires: "" })
     }
   }
   return out
@@ -152,6 +155,7 @@ function normalizeConfig(raw, home) {
     version: 1,
     defaultEditor: base.defaultEditor,
     scale: 0,
+    tasksInTerminal: parsed.tasksInTerminal === undefined ? base.tasksInTerminal : !!parsed.tasksInTerminal,
     discovery: mergeDiscovery(base.discovery, parsed.discovery),
     editors: mergeEditors(base.editors, parsed.editors),
     projects: normalizeProjects(parsed.projects, home)
@@ -204,6 +208,21 @@ function normalizeGit(git) {
   }
 }
 
+function normalizeScanTasks(tasks) {
+  var out = []
+  if (!Array.isArray(tasks)) return out
+  for (var i = 0; i < tasks.length; i++) {
+    var t = tasks[i]
+    if (!isObject(t) || !t.name || !t.command) continue
+    out.push({
+      name: String(t.name),
+      command: String(t.command),
+      requires: String(t.requires || "")
+    })
+  }
+  return out
+}
+
 function parseScan(raw) {
   try {
     var data = JSON.parse(String(raw || ""))
@@ -217,7 +236,9 @@ function parseScan(raw) {
         name: String(p.name || basename(p.path)),
         path: String(p.path),
         git: normalizeGit(p.git),
-        godot: p.godot === true
+        godot: p.godot === true,
+        types: Array.isArray(p.types) ? p.types.map(String) : [],
+        tasks: normalizeScanTasks(p.tasks)
       })
     }
     return {
@@ -231,7 +252,61 @@ function parseScan(raw) {
 
 // --------------------------------------------------------------- merge
 
-function buildProject(path, name, git, meta, config, godot) {
+var TYPE_META = {
+  godot: { icon: "\ue65f", label: "Godot" },
+  node: { icon: "\ue718", label: "Node" },
+  rust: { icon: "\ue7a8", label: "Rust" },
+  go: { icon: "\ue626", label: "Go" },
+  python: { icon: "\ue73c", label: "Python" },
+  nix: { icon: "\uf313", label: "Nix" },
+  cmake: { icon: "\ue794", label: "CMake" },
+  ruby: { icon: "\ue739", label: "Ruby" },
+  php: { icon: "\ue73d", label: "PHP" },
+  make: { icon: "\ue673", label: "Make" },
+  just: { icon: "\uf0ad", label: "Just" }
+}
+
+function primaryType(types) {
+  if (!Array.isArray(types)) return ""
+  for (var i = 0; i < types.length; i++) {
+    if (TYPE_META[types[i]]) return types[i]
+  }
+  return ""
+}
+
+function typeIcon(types) {
+  var t = primaryType(types)
+  return t ? TYPE_META[t].icon : ""
+}
+
+function typeLabel(types) {
+  var t = primaryType(types)
+  return t ? TYPE_META[t].label : ""
+}
+
+// Configured tasks win over auto-detected ones with the same name.
+function mergeTasks(auto, configured) {
+  var out = []
+  var seen = {}
+  var i
+  var conf = Array.isArray(configured) ? configured : []
+  for (i = 0; i < conf.length; i++) {
+    var c = conf[i]
+    if (!c || !c.name) continue
+    seen[String(c.name).toLowerCase()] = true
+    out.push({ name: c.name, command: c.command || "", requires: c.requires || "", source: "config" })
+  }
+  var au = Array.isArray(auto) ? auto : []
+  for (i = 0; i < au.length; i++) {
+    var a = au[i]
+    if (!a || !a.name || seen[String(a.name).toLowerCase()]) continue
+    seen[String(a.name).toLowerCase()] = true
+    out.push({ name: a.name, command: a.command || "", requires: a.requires || "", source: "auto" })
+  }
+  return out
+}
+
+function buildProject(path, name, git, meta, config, godot, types, autoTasks) {
   var explicitEditor = meta && meta.editor && config.editors[meta.editor] ? meta.editor : ""
   var labelId = explicitEditor
   if (!labelId && godot && config.editors.godot) labelId = "godot"
@@ -244,8 +319,9 @@ function buildProject(path, name, git, meta, config, godot) {
     editorId: labelId,
     editorLabel: editor ? editor.label : labelId,
     godot: !!godot,
+    types: Array.isArray(types) ? types.slice() : [],
     tags: meta && Array.isArray(meta.tags) ? meta.tags.slice() : [],
-    tasks: meta && Array.isArray(meta.tasks) ? meta.tasks.slice() : [],
+    tasks: mergeTasks(autoTasks, meta && meta.tasks),
     pinned: !!(meta && meta.pinned),
     git: git || null
   }
@@ -264,7 +340,7 @@ function mergeProjects(scanned, config, home) {
     var s = list[i]
     var key = pathKey(s.path)
     used[key] = true
-    out.push(buildProject(s.path, s.name, s.git, byPath[key], config, s.godot))
+    out.push(buildProject(s.path, s.name, s.git, byPath[key], config, s.godot, s.types, s.tasks))
   }
 
   // Configured projects the scan didn't return (discovery off, path missing,
@@ -272,7 +348,7 @@ function mergeProjects(scanned, config, home) {
   for (i = 0; i < explicit.length; i++) {
     var key2 = pathKey(explicit[i].path)
     if (used[key2]) continue
-    out.push(buildProject(explicit[i].path, explicit[i].name, null, explicit[i], config, false))
+    out.push(buildProject(explicit[i].path, explicit[i].name, null, explicit[i], config, false, [], []))
   }
   return out
 }
@@ -302,22 +378,99 @@ function rankProjects(projects, usage, now) {
   return list
 }
 
+// Fuzzy subsequence score. Returns 0 when query is not a subsequence.
+// Higher is better; contiguous and word-boundary matches score highest.
+function fuzzyScore(text, query) {
+  var t = String(text || "").toLowerCase()
+  var q = String(query || "").toLowerCase()
+  if (!q) return 0
+  if (!t) return 0
+  var ti = 0, score = 0, streak = 0
+  for (var qi = 0; qi < q.length; qi++) {
+    var ch = q.charAt(qi)
+    var found = -1
+    for (var j = ti; j < t.length; j++) {
+      if (t.charAt(j) === ch) { found = j; break }
+    }
+    if (found < 0) return 0
+    if (found === ti) { streak++; score += 3 + streak } else { streak = 0; score += 1 }
+    if (found === 0 || /[ \/_.-]/.test(t.charAt(found - 1))) score += 4
+    ti = found + 1
+  }
+  if (t.indexOf(q) >= 0) score += 25
+  score -= (t.length - q.length) * 0.05
+  return score > 0 ? score : 0.001
+}
+
+function projectMatchScore(p, query) {
+  var fields = [
+    [p.name, 3],
+    [(p.tags || []).join(" "), 2],
+    [p.path, 1],
+    [p.editorLabel, 1],
+    [p.git ? p.git.branch : "", 1]
+  ]
+  var best = 0
+  for (var i = 0; i < fields.length; i++) {
+    var s = fuzzyScore(fields[i][0], query) * fields[i][1]
+    if (s > best) best = s
+  }
+  return best
+}
+
 function filterProjects(projects, query) {
   var list = Array.isArray(projects) ? projects : []
-  var q = String(query || "").trim().toLowerCase()
+  var q = String(query || "").trim()
   if (!q) return list.slice()
-  var out = []
+  var scored = []
   for (var i = 0; i < list.length; i++) {
-    var p = list[i]
-    var hay = [
-      p.name,
-      p.path,
-      p.editorLabel,
-      (p.tags || []).join(" "),
-      p.git ? p.git.branch : ""
-    ].join(" ").toLowerCase()
-    if (hay.indexOf(q) >= 0) out.push(p)
+    var s = projectMatchScore(list[i], q)
+    if (s > 0) scored.push({ p: list[i], s: s })
   }
+  scored.sort(function (a, b) {
+    if (Math.abs(a.s - b.s) > 1e-9) return b.s - a.s
+    return String(a.p.name).localeCompare(String(b.p.name))
+  })
+  var out = []
+  for (var k = 0; k < scored.length; k++) out.push(scored[k].p)
+  return out
+}
+
+function escapeHtml(text) {
+  return String(text == null ? "" : text)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+}
+
+// Markdown-free HTML with matched characters wrapped in <b> for QML StyledText.
+function highlightHtml(text, query) {
+  var t = String(text == null ? "" : text)
+  var q = String(query || "").trim().toLowerCase()
+  if (!q) return escapeHtml(t)
+  var tl = t.toLowerCase()
+  var positions = []
+  var ti = 0
+  for (var qi = 0; qi < q.length; qi++) {
+    var found = -1
+    for (var j = ti; j < tl.length; j++) {
+      if (tl.charAt(j) === q.charAt(qi)) { found = j; break }
+    }
+    if (found < 0) return escapeHtml(t) // not a subsequence: no highlight
+    positions.push(found)
+    ti = found + 1
+  }
+  var mark = {}
+  for (var k = 0; k < positions.length; k++) mark[positions[k]] = true
+  var out = ""
+  var open = false
+  for (var x = 0; x < t.length; x++) {
+    var isMark = !!mark[x]
+    if (isMark && !open) { out += "<b>"; open = true }
+    else if (!isMark && open) { out += "</b>"; open = false }
+    out += escapeHtml(t.charAt(x))
+  }
+  if (open) out += "</b>"
   return out
 }
 
@@ -347,12 +500,21 @@ function remoteToWebUrl(remote) {
   return ""
 }
 
+function gitWebBranchUrl(remote, branch) {
+  var base = remoteToWebUrl(remote)
+  var b = String(branch || "").trim()
+  if (!base || !b || b === "(detached)") return ""
+  return base.replace(/\/+$/, "") + "/tree/" + encodeURIComponent(b)
+}
+
 function projectRow(project) {
   var git = project.git
   return {
     name: project.name,
     path: project.path,
     editorLabel: project.editorLabel,
+    icon: typeIcon(project.types),
+    typeLabel: typeLabel(project.types),
     gitText: gitSummary(git),
     branch: git ? git.branch : "",
     dirty: !!(git && git.dirty),
@@ -440,15 +602,94 @@ function actionsFor(project, config, available, effectiveEditorId) {
     enabled: commandAvailable("wl-copy", available)
   })
 
+  if (project.git && project.git.remote) {
+    actions.push({
+      id: "copy-remote",
+      kind: "copy-remote",
+      label: "Copy clone URL",
+      hint: "",
+      enabled: commandAvailable("wl-copy", available),
+      text: project.git.remote
+    })
+  }
+
+  var git = project.git
+  if (git) {
+    actions.push({
+      id: "git:fetch",
+      kind: "terminal-cmd",
+      label: "Git: fetch",
+      hint: "",
+      enabled: commandAvailable("git", available),
+      command: "git fetch --all --prune"
+    })
+    actions.push({
+      id: "git:pull",
+      kind: "terminal-cmd",
+      label: git.behind > 0 ? "Git: pull (" + git.behind + " behind)" : "Git: pull",
+      hint: "",
+      enabled: commandAvailable("git", available),
+      command: "git pull --ff-only"
+    })
+    actions.push({
+      id: "git:branch",
+      kind: "branches",
+      label: "Git: switch branch\u2026",
+      hint: "",
+      enabled: commandAvailable("git", available)
+    })
+    actions.push({
+      id: "git:new-branch",
+      kind: "new-branch",
+      label: "Git: new branch\u2026",
+      hint: "",
+      enabled: commandAvailable("git", available)
+    })
+    if (commandAvailable("lazygit", available)) {
+      actions.push({
+        id: "git:lazygit",
+        kind: "terminal-cmd",
+        label: "Git: open in lazygit",
+        hint: "",
+        enabled: true,
+        command: "lazygit"
+      })
+    }
+    if (commandAvailable("tig", available)) {
+      actions.push({
+        id: "git:tig",
+        kind: "terminal-cmd",
+        label: "Git: open in tig",
+        hint: "",
+        enabled: true,
+        command: "tig"
+      })
+    }
+    var branchUrl = gitWebBranchUrl(git.remote, git.branch)
+    if (branchUrl) {
+      actions.push({
+        id: "git:branch-url",
+        kind: "github",
+        label: "Git: open branch in browser",
+        hint: "",
+        enabled: true,
+        url: branchUrl
+      })
+    }
+  }
+
   var tasks = project.tasks || []
   for (var i = 0; i < tasks.length; i++) {
+    var t = tasks[i]
+    var ok = !t.requires || commandAvailable(t.requires, available)
     actions.push({
-      id: "task:" + tasks[i].name,
+      id: "task:" + t.name,
       kind: "task",
-      label: "Run task: " + tasks[i].name,
+      label: "Run task: " + t.name,
       hint: i < 9 ? "Ctrl " + (i + 1) : "",
-      enabled: true,
-      command: tasks[i].command
+      enabled: ok,
+      command: t.command,
+      requires: t.requires || ""
     })
   }
 
@@ -489,12 +730,91 @@ function commandFor(action, project, config) {
   if (action.kind === "copy")
     return { shell: "printf %s " + shellQuote(path) + " | wl-copy" }
 
+  if (action.kind === "copy-remote") {
+    var text = action.text || (project && project.git ? project.git.remote : "")
+    if (!text) return null
+    return { shell: "printf %s " + shellQuote(text) + " | wl-copy" }
+  }
+
+  if (action.kind === "terminal-cmd") {
+    if (!action.command) return null
+    return terminalArgv(path, action.command, "org.omarchy.project-manager.task")
+  }
+
   if (action.kind === "task") {
     if (!action.command) return null
-    return { shell: "cd " + shellQuote(path) + " && " + action.command }
+    var cmd = "cd " + shellQuote(path) + " && " + action.command
+    if (config && config.tasksInTerminal === false) return { shell: cmd }
+    return terminalArgv(path, cmd, "org.omarchy.project-manager.task")
   }
 
   return null
+}
+
+// Launch `command` in a terminal rooted at `dir`, keeping the window open so
+// its output stays readable.
+function terminalArgv(dir, command, appId) {
+  var hold = "; st=$?; printf '\\n[exit %s] ' \"$st\"; read -r _"
+  return {
+    argv: [
+      "setsid", "uwsm-app", "--", "xdg-terminal-exec",
+      "--dir=" + dir, "--app-id=" + appId,
+      "-e", "bash", "-lc", command + hold
+    ]
+  }
+}
+
+// --------------------------------------------------------------- branches
+
+function parseBranches(raw) {
+  var lines = String(raw || "").split("\n")
+  var out = []
+  for (var i = 0; i < lines.length; i++) {
+    var line = lines[i]
+    if (!line.trim()) continue
+    var parts = line.split("\t")
+    var name = String(parts[0] || "").trim()
+    if (!name || name.indexOf("->") >= 0) continue
+    var current = String(parts[1] || "").indexOf("*") >= 0
+    out.push({ name: name, current: current })
+  }
+  out.sort(function (a, b) {
+    if (a.current !== b.current) return a.current ? -1 : 1
+    return a.name.localeCompare(b.name)
+  })
+  return out
+}
+
+function branchListArgv(path) {
+  return { argv: ["git", "-C", path, "branch", "--format=%(refname:short)\t%(HEAD)"] }
+}
+
+// --------------------------------------------------------- clone / create
+
+function defaultRoot(config, home) {
+  var roots = (config && config.discovery && config.discovery.roots) || []
+  if (roots.length > 0) return expandPath(roots[0], home)
+  return expandPath("~/Projects", home)
+}
+
+function sanitizeProjectName(name) {
+  var n = String(name || "").trim().replace(/^[-]+/, "")
+  if (!n || n.indexOf("/") >= 0 || n === "." || n === "..") return ""
+  return n
+}
+
+function cloneCommand(config, home, url) {
+  var u = String(url || "").trim()
+  if (!/^(https?:\/\/|git@|ssh:\/\/|git:\/\/|file:\/\/|\/)/.test(u)) return null
+  var root = defaultRoot(config, home)
+  return terminalArgv(root, "git clone " + shellQuote(u), "org.omarchy.project-manager.clone")
+}
+
+function newProjectCommand(config, home, name) {
+  var n = sanitizeProjectName(name)
+  if (!n) return null
+  var dir = defaultRoot(config, home).replace(/\/+$/, "") + "/" + n
+  return { argv: ["bash", "-lc", "mkdir -p " + shellQuote(dir) + " && git -C " + shellQuote(dir) + " init"], path: dir }
 }
 
 // ---------------------------------------------------------------- usage
@@ -539,11 +859,26 @@ if (typeof module !== "undefined") {
     filterProjects: filterProjects,
     gitSummary: gitSummary,
     remoteToWebUrl: remoteToWebUrl,
+    gitWebBranchUrl: gitWebBranchUrl,
     projectRow: projectRow,
+    fuzzyScore: fuzzyScore,
+    projectMatchScore: projectMatchScore,
+    highlightHtml: highlightHtml,
+    escapeHtml: escapeHtml,
+    typeIcon: typeIcon,
+    typeLabel: typeLabel,
+    primaryType: primaryType,
     commandAvailable: commandAvailable,
     availableEditors: availableEditors,
     actionsFor: actionsFor,
     commandFor: commandFor,
+    terminalArgv: terminalArgv,
+    parseBranches: parseBranches,
+    branchListArgv: branchListArgv,
+    defaultRoot: defaultRoot,
+    sanitizeProjectName: sanitizeProjectName,
+    cloneCommand: cloneCommand,
+    newProjectCommand: newProjectCommand,
     parseUsage: parseUsage,
     recordUsage: recordUsage
   }

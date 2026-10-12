@@ -2,6 +2,7 @@
   "version": 1,
   "defaultEditor": "omarchy",
   "scale": 0,
+  "tasksInTerminal": true,
   "discovery": {
     "enabled": true,
     "roots": ["~/Projects", "~/Work", "~/dev"],
