@@ -15,10 +15,16 @@ declared — so the clipboard's own `SUPER + CTRL + V` keeps working.
 ## Features
 
 - **Discovery** — recursively scans configured roots (default `~/Projects`) for
-  projects, plus any explicit entries from the config file.
+  git repositories and Godot projects (`project.godot`), plus any explicit
+  entries from the config file.
+- **Omarchy default editor** — by default projects open with whichever editor
+  you selected via `omarchy default editor` (through `omarchy-launch-editor`),
+  so the plugin follows that choice automatically.
 - **Many editors** — VS Code, Zed, Cursor, Neovim (opens in a terminal), and
   Godot built in; add your own. Unavailable editors are shown greyed out, and
   `Ctrl+E` cycles the editor for the current project.
+- **Godot projects** — anything with a `project.godot` opens in the Godot editor
+  automatically (when `godot` is installed), unless you set an editor for it.
 - **Terminal & files** — open a terminal in the project dir (`Shift+Enter`) or
   the file manager (`Alt+Enter`).
 - **Git at a glance** — branch, dirty marker, ahead/behind counts in the list and
@@ -98,7 +104,7 @@ watched — saving it reloads live. Frecency state is kept separately in
 ```json
 {
   "version": 1,
-  "defaultEditor": "vscode",
+  "defaultEditor": "omarchy",
   "scale": 0,
   "discovery": {
     "enabled": true,
@@ -107,9 +113,10 @@ watched — saving it reloads live. Frecency state is kept separately in
     "exclude": ["node_modules", ".git", ".venv", "dist", "build", "target"]
   },
   "editors": {
-    "vscode": { "label": "VS Code", "command": "code", "args": ["{path}"], "kind": "gui" },
-    "nvim":   { "label": "Neovim",  "command": "nvim", "args": ["{path}"], "kind": "terminal" },
-    "godot":  { "label": "Godot",   "command": "godot", "args": ["--path", "{path}", "--editor"], "kind": "gui" }
+    "omarchy": { "label": "Default editor", "command": "omarchy-launch-editor", "args": ["{path}"], "kind": "direct" },
+    "vscode":  { "label": "VS Code", "command": "code", "args": ["{path}"], "kind": "gui" },
+    "nvim":    { "label": "Neovim",  "command": "nvim", "args": ["{path}"], "kind": "terminal" },
+    "godot":   { "label": "Godot",   "command": "godot", "args": ["--path", "{path}", "--editor"], "kind": "gui" }
   },
   "projects": [
     {
@@ -133,13 +140,17 @@ watched — saving it reloads live. Frecency state is kept separately in
 - **`discovery.roots`** — directories to scan (supports `~`).
 - **`discovery.maxDepth`** — recursion depth (minimum 1).
 - **`discovery.exclude`** — directory names to skip anywhere in the tree.
-- **`defaultEditor`** — editor id used when a project doesn't specify one.
+- **`defaultEditor`** — editor id used when a project doesn't specify one. The
+  built-in `omarchy` editor delegates to `omarchy-launch-editor`, so it follows
+  your Omarchy default. A project with a `project.godot` still opens in Godot
+  (when installed) unless it sets its own `editor`.
 - **`scale`** — UI scale for the overlay. `0` (default) auto-scales by logical
   screen height so it stays comfortable on 1440p/4K displays (`1080p` → `1.0`,
   `1440p` → `1.33`, capped at `1.6`); set a number to force a fixed multiplier.
-- **`editors[id]`** — `{ label, command, args, kind }`. `kind` is `"gui"` (run
-  directly) or `"terminal"` (run inside `xdg-terminal-exec`). `{path}` in `args`
-  is replaced with the project path.
+- **`editors[id]`** — `{ label, command, args, kind }`. `kind` is `"gui"` (launch
+  via `uwsm-app`), `"terminal"` (run inside `xdg-terminal-exec`), or `"direct"`
+  (run the command as-is, e.g. a launcher wrapper). `{path}` in `args` is
+  replaced with the project path.
 - **`projects[]`** — `{ name?, path, editor?, tags?, pinned?, tasks? }`. `path`
   supports `~`; `name` defaults to the basename. `pinned` projects always sort
   first. `tasks` is a name→command map (or a list of `{name, command}`).
@@ -150,7 +161,7 @@ watched — saving it reloads live. Frecency state is kept separately in
 | --- | --- |
 | `ProjectManager.qml` | The overlay: window, list, detail/actions pane, key handling, processes and file I/O. |
 | `ProjectStore.js` | All pure logic (config normalization, scan args, parsing, merge/rank/filter, action + command building, frecency). No Qt types, so it is unit-testable with plain `node`. |
-| `project-manager.sh` | Scan helper: walks the roots, reports git branch/dirty/ahead/behind and remote, and lists which editor/action commands exist on `$PATH`. Emits JSON. |
+| `project-manager.sh` | Scan helper: walks the roots, reports git branch/dirty/ahead/behind and remote, flags Godot projects (`project.godot`), and lists which editor/action commands exist on `$PATH`. Emits JSON. |
 | `manifest.json` | Plugin manifest (`overlay` kind, `keepLoaded`). |
 | `config.example.json` | Sample user config. |
 

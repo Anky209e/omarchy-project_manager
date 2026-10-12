@@ -6,7 +6,7 @@
 # both discovered repos and explicitly configured projects, and reports which
 # external commands are available. Emits a single JSON object on stdout:
 #
-#   { "projects": [ { "name", "path", "git": {branch,dirty,ahead,behind,remote}|null } ],
+#   { "projects": [ { "name", "path", "godot": bool, "git": {branch,dirty,ahead,behind,remote}|null } ],
 #     "availableCommands": [ ... ] }
 #
 # usage:
@@ -104,7 +104,7 @@ discover_root() {
 
   local d
   while IFS= read -r d; do
-    [[ -d $d/.git ]] || continue
+    [[ -d $d/.git || -f $d/project.godot ]] || continue
     add_project "$d" "$(basename "$d")"
   done < <(find "$root" -maxdepth "$depth" -type d "${prunable[@]}" -type d -print 2>/dev/null)
 }
@@ -145,8 +145,10 @@ trap 'rm -f "$tmp"' EXIT
 while IFS= read -r real; do
   [[ -n $real ]] || continue
   git=$(git_json "$real")
-  jq -cn --arg name "${names[$real]}" --arg path "$real" --argjson git "$git" \
-    '{name:$name, path:$path, git:$git}' >>"$tmp"
+  godot=false
+  [[ -f $real/project.godot ]] && godot=true
+  jq -cn --arg name "${names[$real]}" --arg path "$real" --argjson git "$git" --argjson godot "$godot" \
+    '{name:$name, path:$path, git:$git, godot:$godot}' >>"$tmp"
 done < <(printf '%s\n' "${!seen[@]}" | sort)
 
 avail=()

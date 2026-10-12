@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "defaultEditor": "vscode",
+  "defaultEditor": "omarchy",
   "scale": 0,
   "discovery": {
     "enabled": true,
@@ -9,6 +9,7 @@
     "exclude": ["node_modules", ".git", ".venv", "venv", "__pycache__", "dist", "build", "target", "vendor", ".cache", ".next", ".turbo", "coverage"]
   },
   "editors": {
+    "omarchy": { "label": "Default editor", "command": "omarchy-launch-editor", "args": ["{path}"], "kind": "direct" },
     "vscode": { "label": "VS Code", "command": "code", "args": ["{path}"], "kind": "gui" },
     "zed": { "label": "Zed", "command": "zed", "args": ["{path}"], "kind": "gui" },
     "cursor": { "label": "Cursor", "command": "cursor", "args": ["{path}"], "kind": "gui" },

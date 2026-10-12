@@ -32,7 +32,7 @@ function shellQuote(value) {
 function defaultConfig() {
   return {
     version: 1,
-    defaultEditor: "vscode",
+    defaultEditor: "omarchy",
     // 0 = auto (scale by screen height); otherwise a fixed multiplier.
     scale: 0,
     discovery: {
@@ -46,6 +46,9 @@ function defaultConfig() {
       ]
     },
     editors: {
+      // Delegates to Omarchy's own default programming editor, so switching it
+      // with `omarchy default editor` also switches what this plugin opens.
+      omarchy: { label: "Default editor", command: "omarchy-launch-editor", args: ["{path}"], kind: "direct" },
       vscode: { label: "VS Code", command: "code", args: ["{path}"], kind: "gui" },
       zed: { label: "Zed", command: "zed", args: ["{path}"], kind: "gui" },
       cursor: { label: "Cursor", command: "cursor", args: ["{path}"], kind: "gui" },
@@ -60,12 +63,15 @@ function normalizeEditor(editor, id) {
   if (!isObject(editor)) {
     return { id: id, label: id, command: "", args: ["{path}"], kind: "gui" }
   }
+  var kind = "gui"
+  if (editor.kind === "terminal") kind = "terminal"
+  else if (editor.kind === "direct") kind = "direct"
   return {
     id: id,
     label: String(editor.label || id),
     command: String(editor.command || ""),
     args: Array.isArray(editor.args) ? editor.args.map(String) : ["{path}"],
-    kind: editor.kind === "terminal" ? "terminal" : "gui"
+    kind: kind
   }
 }
 
@@ -210,7 +216,8 @@ function parseScan(raw) {
       projects.push({
         name: String(p.name || basename(p.path)),
         path: String(p.path),
-        git: normalizeGit(p.git)
+        git: normalizeGit(p.git),
+        godot: p.godot === true
       })
     }
     return {
@@ -224,14 +231,19 @@ function parseScan(raw) {
 
 // --------------------------------------------------------------- merge
 
-function buildProject(path, name, git, meta, config) {
-  var editorId = meta && meta.editor && config.editors[meta.editor] ? meta.editor : config.defaultEditor
-  var editor = config.editors[editorId]
+function buildProject(path, name, git, meta, config, godot) {
+  var explicitEditor = meta && meta.editor && config.editors[meta.editor] ? meta.editor : ""
+  var labelId = explicitEditor
+  if (!labelId && godot && config.editors.godot) labelId = "godot"
+  if (!labelId) labelId = config.defaultEditor
+  var editor = config.editors[labelId]
   return {
     name: String(name || basename(path)),
     path: path,
-    editor: editorId,
-    editorLabel: editor ? editor.label : editorId,
+    editor: explicitEditor,
+    editorId: labelId,
+    editorLabel: editor ? editor.label : labelId,
+    godot: !!godot,
     tags: meta && Array.isArray(meta.tags) ? meta.tags.slice() : [],
     tasks: meta && Array.isArray(meta.tasks) ? meta.tasks.slice() : [],
     pinned: !!(meta && meta.pinned),
@@ -252,7 +264,7 @@ function mergeProjects(scanned, config, home) {
     var s = list[i]
     var key = pathKey(s.path)
     used[key] = true
-    out.push(buildProject(s.path, s.name, s.git, byPath[key], config))
+    out.push(buildProject(s.path, s.name, s.git, byPath[key], config, s.godot))
   }
 
   // Configured projects the scan didn't return (discovery off, path missing,
@@ -260,7 +272,7 @@ function mergeProjects(scanned, config, home) {
   for (i = 0; i < explicit.length; i++) {
     var key2 = pathKey(explicit[i].path)
     if (used[key2]) continue
-    out.push(buildProject(explicit[i].path, explicit[i].name, null, explicit[i], config))
+    out.push(buildProject(explicit[i].path, explicit[i].name, null, explicit[i], config, false))
   }
   return out
 }
@@ -373,13 +385,20 @@ function availableEditors(config, available) {
 
 function actionsFor(project, config, available, effectiveEditorId) {
   var actions = []
-  var editorId = effectiveEditorId && config.editors[effectiveEditorId] ? effectiveEditorId : project.editor
+  var editorId = effectiveEditorId && config.editors[effectiveEditorId] ? effectiveEditorId : ""
+  // Godot projects open in the Godot editor unless the user picked one.
+  if (!editorId && project.godot && config.editors.godot
+      && commandAvailable(config.editors.godot.command, available)) editorId = "godot"
+  if (!editorId) editorId = config.defaultEditor
   var editor = config.editors[editorId] || config.editors[config.defaultEditor]
 
   if (editor) {
+    var actionKind = "editor-gui"
+    if (editor.kind === "terminal") actionKind = "editor-terminal"
+    else if (editor.kind === "direct") actionKind = "editor-direct"
     actions.push({
       id: "editor:" + editorId,
-      kind: editor.kind === "terminal" ? "editor-terminal" : "editor-gui",
+      kind: actionKind,
       label: "Open in " + editor.label,
       hint: "Enter",
       enabled: commandAvailable(editor.command, available),
@@ -442,7 +461,7 @@ function commandFor(action, project, config) {
   if (!action) return null
   var path = project ? project.path : ""
 
-  if (action.kind === "editor-gui" || action.kind === "editor-terminal") {
+  if (action.kind === "editor-gui" || action.kind === "editor-terminal" || action.kind === "editor-direct") {
     var editor = config.editors[action.editorId] || config.editors[config.defaultEditor]
     if (!editor) return null
     var args = editor.args || ["{path}"]
@@ -452,6 +471,7 @@ function commandFor(action, project, config) {
     if (editor.kind === "terminal") {
       return { argv: ["setsid", "uwsm-app", "--", "xdg-terminal-exec", "--dir=" + path, "-e"].concat(cmd) }
     }
+    if (editor.kind === "direct") return { argv: cmd }
     return { argv: ["setsid", "uwsm-app", "--"].concat(cmd) }
   }
 
