@@ -1,0 +1,30 @@
+{
+  "version": 1,
+  "defaultEditor": "vscode",
+  "discovery": {
+    "enabled": true,
+    "roots": ["~/Projects", "~/Work", "~/dev"],
+    "maxDepth": 3,
+    "exclude": ["node_modules", ".git", ".venv", "venv", "__pycache__", "dist", "build", "target", "vendor", ".cache", ".next", ".turbo", "coverage"]
+  },
+  "editors": {
+    "vscode": { "label": "VS Code", "command": "code", "args": ["{path}"], "kind": "gui" },
+    "zed": { "label": "Zed", "command": "zed", "args": ["{path}"], "kind": "gui" },
+    "cursor": { "label": "Cursor", "command": "cursor", "args": ["{path}"], "kind": "gui" },
+    "nvim": { "label": "Neovim", "command": "nvim", "args": ["{path}"], "kind": "terminal" },
+    "godot": { "label": "Godot", "command": "godot", "args": ["--path", "{path}", "--editor"], "kind": "gui" }
+  },
+  "projects": [
+    {
+      "name": "anky.project_manager",
+      "path": "~/Projects/anky.project_manager",
+      "editor": "nvim",
+      "tags": ["omarchy", "qml"],
+      "pinned": true,
+      "tasks": {
+        "Validate": "omarchy plugin validate .",
+        "Git status": "git status"
+      }
+    }
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "id": "anky.project_manager",
+  "name": "Project Manager",
+  "version": "1.0.0",
+  "author": "anky209e",
+  "description": "A keyboard-driven project launcher: open projects in your editors, terminals, and file manager, see git branch/status, run per-project tasks, jump to the repo, and copy paths.",
+  "kinds": [
+    "overlay"
+  ],
+  "keepLoaded": true,
+  "entryPoints": {
+    "overlay": "ProjectManager.qml"
+  },
+  "omarchy": {
+    "clonedFrom": "omarchy.clipboard"
+  }
+}
