@@ -29,6 +29,10 @@ Sources:
 
 ## Prepare locally
 
+The dependency review remains incomplete. See [security-review.md](security-review.md)
+for the addressed credential issue and remaining scope. These local checks do
+not establish that the plugin is ready for security approval.
+
 Run from the repository root after committing the source you want reviewed:
 
 ```sh
@@ -61,7 +65,9 @@ you commit it; the report calls that out instead of silently including it.
 
 - The overlay runs in the Omarchy shell with normal user permissions.
 - Discovery reads configured roots, type markers, task definitions, and Git
-  status. It does not automatically launch detected tasks.
+  status. It does not automatically launch detected tasks. Remote values are
+  sanitized through stdin before scan JSON or external argv can contain them.
+  Broader Git/configuration-dependent behavior is still under review.
 - Persistent writes are confined to the plugin's usage/preferences files unless
   the user requests project creation, cloning, or task execution.
 - Project config is read from `~/.config/omarchy/project-manager.json` and is not

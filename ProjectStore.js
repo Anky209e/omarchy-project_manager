@@ -208,7 +208,7 @@ function normalizeGit(git) {
     dirty: !!git.dirty,
     ahead: Number(git.ahead || 0) || 0,
     behind: Number(git.behind || 0) || 0,
-    remote: String(git.remote || "")
+    remote: publicGitRemote(git.remote)
   }
 }
 
@@ -500,18 +500,30 @@ function gitSummary(git) {
   return s
 }
 
+function publicGitRemote(remote) {
+  var r = String(remote || "")
+  // Defense in depth for legacy scan data: launch only a credential-free URL.
+  if (/[\x00-\x20\x7f\\]/.test(r)) return ""
+  r = r.split(/[?#]/)[0]
+  var host = "", path = "", scheme = "https://"
+  var m = r.match(/^(https?|ssh|git):\/\/([^/]+)(\/.*)$/i)
+  if (m) {
+    host = m[2].substring(m[2].lastIndexOf("@") + 1)
+    path = m[3]
+    if (m[1].toLowerCase() === "http") scheme = "http://"
+  } else {
+    if (r.indexOf("://") >= 0) return ""
+    m = r.match(/^(?:[^@/:]+@)?(\[[0-9A-Fa-f:.]+\]|[A-Za-z0-9][A-Za-z0-9.-]*):([^?#]+)$/)
+    if (!m) return ""
+    host = m[1]
+    path = "/" + m[2].replace(/^\//, "")
+  }
+  if (!/^(?:[A-Za-z0-9][A-Za-z0-9.-]*|\[[0-9A-Fa-f:.]+\])(?::[0-9]+)?$/.test(host)) return ""
+  return scheme + host + path
+}
+
 function remoteToWebUrl(remote) {
-  var r = String(remote || "").trim()
-  if (!r) return ""
-  r = r.replace(/\.git$/, "")
-  var m = r.match(/^git@([^:]+):(.+)$/)
-  if (m) return "https://" + m[1] + "/" + m[2]
-  m = r.match(/^ssh:\/\/git@([^/]+)\/(.+)$/)
-  if (m) return "https://" + m[1] + "/" + m[2]
-  m = r.match(/^git:\/\/([^/]+)\/(.+)$/)
-  if (m) return "https://" + m[1] + "/" + m[2]
-  if (r.indexOf("http://") === 0 || r.indexOf("https://") === 0) return r
-  return ""
+  return publicGitRemote(remote).replace(/\.git$/, "")
 }
 
 function projectRow(project) {

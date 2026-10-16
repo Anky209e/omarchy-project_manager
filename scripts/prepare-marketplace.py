@@ -40,7 +40,7 @@ def prepare(output):
     tree = git('ls-tree', '-r', '-z', commit).split(b'\0')
     if any(entry.startswith(b'120000 ') for entry in tree if entry):
         raise ValueError('Committed plugin tree contains symlinks')
-    for filename in (*RUNTIME_FILES, 'config.example.json', 'LICENSE', 'CHANGELOG.md', 'README.md'):
+    for filename in (*RUNTIME_FILES, 'config.example.json', 'LICENSE', 'CHANGELOG.md', 'README.md', 'docs/security-review.md'):
         if not snapshot(filename):
             raise ValueError(f'Missing or empty release file: {filename}')
     readme = snapshot('README.md').decode()
@@ -71,6 +71,9 @@ def prepare(output):
         'tags': ['launcher', 'quickshell', 'hyprland'],
         'localSnapshotChecksPassed': True,
         'testsRunByGenerator': False,
+        'dependencyReviewStatus': 'incomplete',
+        'securityReviewNotes': 'docs/security-review.md',
+        'securityApprovalClaimed': False,
         'remoteHeadChecked': False,
         'submissionSent': False,
         'ownerAcknowledgmentPending': True,
@@ -87,7 +90,7 @@ def prepare(output):
     print(f'Local drafts: {output}')
     if changes:
         print('Working-tree changes are excluded from this exact-commit draft; see the preflight report.')
-    print('Nothing was pushed, submitted, or published. Owner review and remote HEAD verification remain pending.')
+    print('Nothing was pushed, submitted, or published. Owner review, dependency review, and remote HEAD verification remain pending.')
 
 
 def main():

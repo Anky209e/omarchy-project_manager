@@ -23,7 +23,7 @@ class MarketplacePreparationTests(unittest.TestCase):
         self.repository.mkdir()
         for name in (*PREPARATION.RUNTIME_FILES, 'manifest.json', 'README.md', 'LICENSE',
                      'CHANGELOG.md', 'config.example.json', 'preview.png',
-                     'docs/marketplace-update.template.md'):
+                     'docs/marketplace-update.template.md', 'docs/security-review.md'):
             target = self.repository / name
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(ROOT / name, target)
@@ -67,6 +67,8 @@ class MarketplacePreparationTests(unittest.TestCase):
         self.assertIn(head, body)
         self.assertNotIn('{{', body)
         self.assertIn('- [ ]', body)
+        self.assertEqual(report['dependencyReviewStatus'], 'incomplete')
+        self.assertFalse(report['securityApprovalClaimed'])
         self.assertFalse(report['submissionSent'])
         self.assertFalse(report['remoteHeadChecked'])
         self.assertEqual(index_before, self.git('diff', '--cached', '--binary'))

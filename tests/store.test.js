@@ -114,3 +114,31 @@ test('matching pinned projects stay first in search results', () => {
   assert.equal(Store.filterProjects(projects, 'demo')[0].path, '/tmp/pinned')
   assert.equal(Store.filterProjects(projects, 'no match').length, 0)
 })
+
+test('browser links discard remote credentials, query strings and fragments', () => {
+  const cases = [
+    ['https://user:secret@example.com/org/repo.git?token=secret#secret', 'https://example.com/org/repo'],
+    ['https://user:secret@example.com/org/repo.git.git', 'https://example.com/org/repo.git'],
+    ['HTTP://token@localhost:3000/org/repo', 'http://localhost:3000/org/repo'],
+    ['ssh://user:secret@example.com/org/repo.git', 'https://example.com/org/repo'],
+    ['git://user:secret@example.com/org/repo.git', 'https://example.com/org/repo'],
+    ['git@example.com:org/repo.git', 'https://example.com/org/repo'],
+    ['git@[::1]:org/repo.git', 'https://[::1]/org/repo'],
+    ['https://user:secret@/org/repo', ''],
+    ['file:///tmp/repo', ''],
+    ['https://example.com/org/repo\nsecret', ''],
+    ['https://example.com/org\\repo', '']
+  ]
+  for (const [remote, expected] of cases) {
+    assert.equal(Store.remoteToWebUrl(remote), expected)
+    const config = Store.normalizeConfig({}, '/home/test')
+    const parsed = Store.parseScan(JSON.stringify({projects: [{path: '/tmp/demo', git: {remote}}]}))
+    assert.equal(Store.remoteToWebUrl(parsed.projects[0].git.remote), expected)
+    const project = parsed.projects[0]
+    const action = Store.actionsFor(project, config, ['setsid', 'uwsm-app', 'omarchy-launch-browser'])
+      .find(a => a.kind === 'github')
+    assert.equal(action.enabled, Boolean(expected))
+    if (expected) assert.equal(Store.commandFor(action, project, config).argv.at(-1), expected)
+    assert.ok(!JSON.stringify(parsed).includes('secret'))
+  }
+})

@@ -120,7 +120,7 @@ if ((${#roots[@]})); then
 fi
 
 git_json() {
-  local p="$1" out branch ahead behind dirty remote
+  local p="$1" out branch ahead behind dirty
   if ! git -C "$p" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     printf 'null'
     return 0
@@ -132,15 +132,38 @@ git_json() {
   behind=$(sed -n 's/^# branch.ab .*-\([0-9]*\)$/\1/p' <<<"$out" | head -n1)
   dirty=0
   grep -qv '^#' <<<"$out" && dirty=1
-  remote=$(git -C "$p" config --get remote.origin.url 2>/dev/null || true)
-
-  jq -cn \
-    --arg branch "${branch:-}" \
-    --argjson dirty "$dirty" \
-    --argjson ahead "${ahead:-0}" \
-    --argjson behind "${behind:-0}" \
-    --arg remote "${remote:-}" \
-    '{branch:$branch, dirty:($dirty == 1), ahead:$ahead, behind:$behind, remote:$remote}'
+  # A configured remote can contain credentials. Feed it only through stdin,
+  # never argv or the environment, and expose only a public repository URL.
+  # Downstream jq invocations and browser launchers receive the sanitized value.
+  { git -C "$p" config --get remote.origin.url 2>/dev/null || true; } |
+    jq -Rsc \
+      --arg branch "${branch:-}" \
+      --argjson dirty "$dirty" \
+      --argjson ahead "${ahead:-0}" \
+      --argjson behind "${behind:-0}" '
+      def valid_host:
+        test("^([A-Za-z0-9][A-Za-z0-9.-]*|\\[[0-9A-Fa-f:.]+\\])(:[0-9]+)?$");
+      def public_remote:
+        rtrimstr("\n")
+        | if test("[\\x00-\\x20\\x7f\\\\]") then ""
+          elif test("^(https?|ssh|git)://"; "i") then
+            try (
+              capture("^(?<scheme>https?|ssh|git)://(?<host>[^/?#]+)(?<path>/[^?#]*)([?#].*)?$"; "i")
+              | .host = (.host | split("@") | last)
+              | if (.host | valid_host) then
+                  (if (.scheme | ascii_downcase) == "http" then "http://" else "https://" end)
+                  + .host + .path
+                else "" end
+            ) catch ""
+          elif contains("://") then ""
+          else
+            try (
+              capture("^([^@/:]+@)?(?<host>\\[[0-9A-Fa-f:.]+\\]|[A-Za-z0-9][A-Za-z0-9.-]*):(?<path>[^?#]+)([?#].*)?$")
+              | "https://" + .host + "/" + (.path | ltrimstr("/"))
+            ) catch ""
+          end;
+      {branch:$branch, dirty:($dirty == 1), ahead:$ahead, behind:$behind,
+       remote: (public_remote // "")}'
 }
 
 # ---------------------------------------------------- project type & tasks

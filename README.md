@@ -116,7 +116,7 @@ Removal deletes the plugin folder only. Your config
 
 - Omarchy shell with third-party plugins enabled (Quattro).
 - `bash`, `git`, `jq` (for the scan helper), `setsid` (for managed tasks).
-- Standard Omarchy/Arch tools: GNU coreutils, findutils, grep, sed, and util-linux.
+- Standard Omarchy/Arch tools: GNU coreutils, findutils, grep, sed, awk, and util-linux.
 - For GUI and terminal actions: `uwsm-app`, `xdg-open`, `xdg-terminal-exec`,
   `omarchy-launch-editor`, and `omarchy-launch-browser`.
 - Optional: `wl-copy` for clipboard actions; `lazygit` for its Git action;
@@ -125,6 +125,8 @@ Removal deletes the plugin folder only. Your config
 
 No sudo or pkexec is required. There are no install hooks, automatic dependency
 installations, or telemetry. Discovery reads local directories and Git metadata.
+Discovery exports only sanitized public repository links: URL user information,
+query strings, and fragments are removed without changing Git config.
 Cloning contacts the repository you request. Explicitly launched tasks may use
 the network, install project dependencies, or change project files according to
 the command. They run with your normal user permissions. The plugin writes its
@@ -136,6 +138,8 @@ not edit Hyprland bindings or the Omarchy shell configuration.
 Version 1.1.0 adds persistent project preferences, grouped actions, and managed
 task output. See [CHANGELOG.md](CHANGELOG.md) for fixes and migration notes.
 Marketplace update preparation is documented in [docs/marketplace.md](docs/marketplace.md).
+The dependency review remains incomplete; see [docs/security-review.md](docs/security-review.md)
+for the remote-credential fix and remaining scope.
 
 ## Development
 

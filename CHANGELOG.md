@@ -23,6 +23,10 @@
 
 ### Fixed
 
+- Git remote credentials exposed in scanner child-process arguments and scan
+  JSON. Raw remotes now use stdin; only sanitized public links are exported.
+  The broader dependency review remains incomplete.
+
 - Auto-detected task tools incorrectly reported as unavailable.
 - Shell interpretation of spaces and metacharacters in package script names.
 - Configured names being replaced by discovered basenames.
