@@ -313,7 +313,7 @@ function buildProject(path, name, git, meta, config, godot, types, autoTasks) {
   if (!labelId) labelId = config.defaultEditor
   var editor = config.editors[labelId]
   return {
-    name: String(name || basename(path)),
+    name: String((meta && meta.name) || name || basename(path)),
     path: path,
     editor: explicitEditor,
     editorId: labelId,
