@@ -97,7 +97,7 @@ Item {
   property int contentSpacing: root.sMd
   property int cardWidth: Math.min(root.sp(980), panel.width - Style.gapsOut * 2)
   property int cardHeight: Math.min(root.sp(620), panel.height - Style.gapsOut * 2)
-  property int rowHeight: Math.max(root.sp(56), root.fTitle + root.fCaption + root.sXs + root.sControlY * 2)
+  property int rowHeight: Math.max(root.sp(82), root.fTitle + root.fCaption * 2 + root.sXs * 2 + root.sControlY * 2)
   property int actionRowHeight: Math.max(root.sp(34), root.fBody + root.sControlY * 2)
   property int footerHeight: Math.max(root.sp(18), root.fCaption + root.sp(4))
 
@@ -324,6 +324,17 @@ Item {
     var command = Store.commandFor(action, project, root.config)
     if (!command) return
 
+    if (command.managed) {
+      if (taskRunner.busy) {
+        root.statusText = "A task is already running · Stop it before starting another"
+      } else {
+        taskConsole.followOutput = true
+        taskRunner.start(command.managed)
+        root.recordUsage(project.path)
+      }
+      root.mode = "output"
+      return
+    }
     root.recordUsage(project.path)
     root.opened = false
     root.mode = "list"
@@ -479,6 +490,18 @@ Item {
     onFileChanged: reload()
   }
 
+  TaskRunner {
+    id: taskRunner
+    onFinished: { if (!root.scanning) root.runScan() }
+  }
+
+  Process {
+    id: copyProc
+    stdinEnabled: true
+    command: ["wl-copy"]
+    onStarted: { copyProc.write(taskRunner.output); copyProc.stdinEnabled = false }
+  }
+
   FileView {
     id: configFile
     path: root.configPath
@@ -585,6 +608,23 @@ Item {
             return
           }
 
+          if (root.mode === "output") {
+            if (event.key === Qt.Key_Escape || (ctrlMod && event.key === Qt.Key_O)) {
+              root.mode = "list"
+              keyCatcher.forceActiveFocus()
+            } else if (ctrlMod && event.key === Qt.Key_X) taskRunner.cancel()
+            else if (ctrlMod && (event.key === Qt.Key_Return || event.key === Qt.Key_Enter)) {
+              taskConsole.followOutput = true
+              taskRunner.rerun()
+            } else return
+            event.accepted = true
+            return
+          }
+          if (ctrlMod && event.key === Qt.Key_O) {
+            if (taskRunner.state !== "idle") root.mode = "output"
+            event.accepted = true
+            return
+          }
           if (ctrlMod && event.key === Qt.Key_P) {
             root.togglePin()
             event.accepted = true
@@ -693,7 +733,7 @@ Item {
             anchors.right: statusLabel.left
             anchors.rightMargin: root.sp(12)
             anchors.verticalCenter: parent.verticalCenter
-            text: root.filterText || "Search projects…"
+            text: root.mode === "output" ? "Task output" : (root.filterText || "Search projects…")
             color: root.foreground
             opacity: root.filterText ? 1 : 0.58
             font.family: root.fontFamily
@@ -708,19 +748,48 @@ Item {
             anchors.verticalCenter: parent.verticalCenter
             width: Math.min(implicitWidth, parent.width * 0.48)
             elide: Text.ElideRight
-            text: root.statusText.length > 0 ? root.statusText
-              : (displayModel.count + " / " + root.projects.length + " projects")
+            text: taskRunner.busy ? "● Task running · Ctrl O output"
+              : (root.statusText.length > 0 ? root.statusText
+                : (displayModel.count + " / " + root.projects.length + " projects"))
             color: root.foreground
             opacity: 0.5
             font.family: root.fontFamily
             font.pixelSize: root.fCaption
-
+            MouseArea {
+              anchors.fill: parent
+              enabled: taskRunner.state !== "idle"
+              cursorShape: Qt.PointingHandCursor
+              onClicked: root.mode = "output"
+            }
           }
         }
 
         Item {
           width: parent.width
           height: parent.height - root.headerHeight - root.footerHeight - root.contentSpacing * 2
+
+          TaskConsole {
+            id: taskConsole
+            anchors.fill: parent
+            visible: root.mode === "output"
+            runner: taskRunner
+            canCopy: Store.commandAvailable("wl-copy", root.availableCommands)
+            foreground: root.foreground; background: root.background
+            accent: root.accent; urgent: root.urgent
+            fontFamily: root.fontFamily
+            bodySize: root.fBody; captionSize: root.fCaption
+            spacing: root.sMd; cornerRadius: root.cornerRadius
+            onBackRequested: { root.mode = "list"; keyCatcher.forceActiveFocus() }
+            onCopyRequested: function (text) {
+              if (!Store.commandAvailable("wl-copy", root.availableCommands)) {
+                root.statusText = "Missing: wl-copy"
+                return
+              }
+              if (copyProc.running) return
+              copyProc.stdinEnabled = true
+              copyProc.running = true
+            }
+          }
 
           Row {
             anchors.fill: parent
@@ -1097,13 +1166,14 @@ Item {
           verticalAlignment: Text.AlignVCenter
           text: {
             if (root.mode === "prompt") return "Enter confirm  ·  Esc cancel"
+            if (root.mode === "output") return "Ctrl X stop task  ·  Ctrl Enter rerun  ·  Esc back to projects · Tasks keep running when closed"
             if (root.focusArea === "actions") {
               var s = "\u2191\u2193 move  ·  Enter run"
               if (root.hasLazygitAction) s += "  ·  Ctrl \u21e7G lazygit"
               s += "  ·  Ctrl P pin  ·  Ctrl E editor  ·  \u2190 project list  ·  Esc close"
               return s
             }
-            return "type to search  ·  \u2191\u2193 move  ·  Enter open  ·  \u21e7Enter terminal  ·  \u2325Enter files  ·  \u2192 actions  ·  Ctrl P pin  ·  Ctrl E editor"
+            return "type to search  ·  \u2191\u2193 move  ·  Enter open  ·  \u21e7Enter terminal  ·  \u2325Enter files  ·  \u2192 actions  ·  Ctrl P pin  ·  Ctrl E editor  ·  Ctrl O output"
           }
           color: root.foreground
           opacity: 0.45

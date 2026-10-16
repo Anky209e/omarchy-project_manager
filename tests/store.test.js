@@ -77,15 +77,6 @@ test('malformed preferences and removed editors fall back safely', () => {
   assert.equal(Store.applyPreferences(projects, preferences, config, [])[0].pinned, false)
 })
 
-test('matching pinned projects stay first in search results', () => {
-  const projects = [
-    {name: 'Demo', path: '/tmp/demo', pinned: false},
-    {name: 'A demo project', path: '/tmp/pinned', pinned: true}
-  ]
-  assert.equal(Store.filterProjects(projects, 'demo')[0].path, '/tmp/pinned')
-  assert.equal(Store.filterProjects(projects, 'no match').length, 0)
-})
-
 test('actions are grouped without changing task shortcut order and explain missing tools', () => {
   const config = Store.normalizeConfig({}, '/home/test')
   const project = {path: '/tmp/demo', name: 'Demo', tasks: [
@@ -100,6 +91,26 @@ test('actions are grouped without changing task shortcut order and explain missi
   const tasks = actions.filter(a => a.kind === 'task')
   assert.deepEqual(tasks.map(t => t.hint), ['Ctrl 1', 'Ctrl 2'])
   assert.match(tasks[0].disabledReason, /make/)
-  const enabled = Store.actionsFor(project, config, ['setsid', 'make', 'uwsm-app', 'xdg-terminal-exec']).filter(a => a.kind === 'task')
+  const enabled = Store.actionsFor(project, config, ['setsid', 'make']).filter(a => a.kind === 'task')
   assert.equal(enabled[0].enabled, true)
+})
+
+test('task execution defaults to managed, with legacy modes preserved', () => {
+  const project = {path: "/tmp/project 'quoted'", name: 'Demo'}
+  const task = {kind: 'task', command: 'echo hi', label: 'Test'}
+  const managed = Store.normalizeConfig({}, '/home/test')
+  assert.equal(managed.taskMode, 'managed')
+  assert.equal(Store.commandFor(task, project, managed).managed.path, project.path)
+  assert.ok(Store.commandFor(task, project, Store.normalizeConfig({tasksInTerminal: true}, '')).argv.includes('xdg-terminal-exec'))
+  assert.ok(Store.commandFor(task, project, Store.normalizeConfig({tasksInTerminal: false}, '')).shell.includes('echo hi'))
+  assert.equal(Store.normalizeConfig({taskMode: 'managed', tasksInTerminal: true}, '').taskMode, 'managed')
+})
+
+test('matching pinned projects stay first in search results', () => {
+  const projects = [
+    {name: 'Demo', path: '/tmp/demo', pinned: false},
+    {name: 'A demo project', path: '/tmp/pinned', pinned: true}
+  ]
+  assert.equal(Store.filterProjects(projects, 'demo')[0].path, '/tmp/pinned')
+  assert.equal(Store.filterProjects(projects, 'no match').length, 0)
 })

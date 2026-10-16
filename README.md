@@ -32,9 +32,8 @@ declared — so the clipboard's own `SUPER + CTRL + V` keeps working.
 - **Many editors** — VS Code, Zed, Cursor, Neovim (opens in a terminal), and
   Godot built in; add your own. Unavailable editors are shown greyed out, and
   `Ctrl+E` cycles the editor for the current project and remembers your choice.
-- **Pin projects** — `Ctrl+P` toggles a pin. Pins and editor choices are saved in
-  `~/.local/state/omarchy/project-manager/preferences.json`, overriding config
-  without rewriting it. Delete that file to restore configured defaults.
+- **Pin projects** — click the pin or press `Ctrl+P` to keep a project at the
+  top. Pins and editor choices survive shell restarts without rewriting config.
 - **Godot projects** — anything with a `project.godot` opens in the Godot editor
   automatically (when `godot` is installed), unless you set an editor for it.
 - **Terminal & files** — open a terminal in the project dir (`Shift+Enter`) or
@@ -51,8 +50,12 @@ declared — so the clipboard's own `SUPER + CTRL + V` keeps working.
   the project path.
 - **Fuzzy search** — filter matches on name, path, tags, editor and branch as a
   subsequence, with matches highlighted.
-- **Tasks** — auto-detected and per-project commands run in a terminal (output
-  visible) with `Ctrl+1`..`Ctrl+9`.
+- **Tasks** — `Ctrl+1`..`Ctrl+9` runs a task in the overlay with live stdout and
+  stderr, exit status, Copy output, Stop, and Rerun. `Ctrl+O` returns to the
+  latest output while you browse projects. One managed task runs at a time;
+  closing the overlay keeps it running. Interactive tasks can use terminal mode.
+- **Grouped actions** — Open, Git, Tasks, and Project sections keep actions easy
+  to scan. Disabled actions explain missing tools or unsupported remotes.
 - **Frecency** — the projects you open most, most recently, float to the top.
 
 ## Install
@@ -108,12 +111,13 @@ omarchy plugin remove io.github.anky209e.project-manager
 
 Removal deletes the plugin folder only. Your config
 (`~/.config/omarchy/project-manager.json`) and frecency state
-(`~/.local/state/omarchy/project-manager/usage.json`) are left untouched.
+(`~/.local/state/omarchy/project-manager/usage.json`) and preferences
+(`~/.local/state/omarchy/project-manager/preferences.json`) are left untouched.
 
 ## Requirements
 
 - Omarchy shell with third-party plugins enabled (Quattro).
-- `bash`, `git`, `jq` (for the scan helper).
+- `bash`, `git`, `jq` (for the scan helper), `setsid` (for managed tasks).
 - For actions: `wl-copy`, `xdg-open`, `xdg-terminal-exec`,
   `omarchy-launch-browser`. Actions whose tool is missing are disabled, not
   broken.
@@ -148,8 +152,21 @@ node --test tests/store.test.js
 bash -n project-manager.sh
 ```
 
-The tests use temporary local repositories and stub tools; they do not open
-editors or launch the overlay.
+The tests use temporary local repositories and stub tools. For UI checks on a
+machine with Qt Test and Quickshell installed:
+
+```sh
+QT_QPA_PLATFORM=offscreen QT_QPA_PLATFORMTHEME= QT_QUICK_CONTROLS_STYLE=Basic \
+  /usr/lib/qt6/bin/qmltestrunner -input tests/qml
+python3 tests/run_overlay_smoke.py --screenshots /tmp/project-manager-preview
+```
+
+The smoke test isolates HOME and configuration, substitutes the Wayland window
+host for headless rendering, and runs the production controller, file I/O,
+scanner, and task runner. It checks preferences across new instances, stdout /
+stderr, failure status, rerun, cancellation, and prompts with no search results.
+It does not change your desktop or launch editors. Native layer-shell placement
+and compositor focus still need an interactive check.
 
 ## Keybindings
 
@@ -158,13 +175,16 @@ editors or launch the overlay.
 | `SUPER + ALT + P` | Toggle the overlay |
 | type | Filter projects |
 | `Up` / `Down` | Move selection (or the action list when focused) |
-| `Left` / `Tab` | Focus the action list |
-| `Right` / `Shift+Tab` | Back to the project list |
+| `Right` / `Tab` | Focus the action list |
+| `Left` / `Shift+Tab` | Back to the project list |
 | `Enter` | Open the highlighted action (default: editor) |
 | `Shift+Enter` | Open a terminal in the project |
 | `Alt+Enter` | Open the file manager |
-| `Ctrl+E` | Cycle and remember the project editor |
-| `Ctrl+P` | Pin or unpin the project |
+| `Ctrl+E` | Cycle and remember the editor for the current project |
+| `Ctrl+P` | Pin or unpin the current project |
+| `Ctrl+O` | Show the latest task output (again to return) |
+| `Ctrl+X` | Stop the managed task while viewing output |
+| `Ctrl+Enter` | Rerun the last task while viewing output |
 | `Ctrl+G` | Open the repository in the browser |
 | `Ctrl+Shift+G` | Open the repo in lazygit |
 | `Ctrl+Y` | Copy the project path |
@@ -188,7 +208,7 @@ watched — saving it reloads live. Frecency state is kept separately in
   "version": 1,
   "defaultEditor": "omarchy",
   "scale": 0,
-  "tasksInTerminal": true,
+  "taskMode": "managed",
   "discovery": {
     "enabled": true,
     "roots": ["~/Projects", "~/Work", "~/dev"],
@@ -230,8 +250,19 @@ watched — saving it reloads live. Frecency state is kept separately in
 - **`scale`** — UI scale for the overlay. `0` (default) auto-scales by logical
   screen height so it stays comfortable on 1440p/4K displays (`1080p` → `1.0`,
   `1440p` → `1.33`, capped at `1.6`); set a number to force a fixed multiplier.
-- **`tasksInTerminal`** — run tasks in a terminal window so their output is
-  visible (`true`, default). Set `false` to run them detached in the background.
+- **`taskMode`** — `"managed"` (default) captures output in the overlay and offers
+  Stop and Rerun. `"terminal"` opens an interactive terminal; `"background"`
+  launches detached. Legacy `tasksInTerminal: true/false` maps to terminal/background
+  unless `taskMode` is set explicitly. Editors and lazygit still open externally.
+- **Saved preferences** — pins and editor choices live in
+  `~/.local/state/omarchy/project-manager/preferences.json` and override project
+  config fields. Deleting this file restores configured defaults. An explicit
+  unpin overrides `pinned: true` in config; unknown editor IDs fall back to config.
+- **Task output** — the latest managed run is retained in memory (up to 128K characters),
+  including failures. Output is plain text; commands that require interactive
+  input should use `taskMode: "terminal"`. Cancellation sends TERM to the task's
+  process group, then KILL after a short grace period. Deliberately detached
+  processes are outside that group. Task history is cleared when the shell restarts.
 - **`editors[id]`** — `{ label, command, args, kind }`. `kind` is `"gui"` (launch
   via `uwsm-app`), `"terminal"` (run inside `xdg-terminal-exec`), or `"direct"`
   (run the command as-is, e.g. a launcher wrapper). `{path}` in `args` is
@@ -245,6 +276,9 @@ watched — saving it reloads live. Frecency state is kept separately in
 | File | Role |
 | --- | --- |
 | `ProjectManager.qml` | The overlay: window, list, detail/actions pane, key handling, processes and file I/O. |
+| `ActionMenu.qml` | Grouped actions, keyboard selection, and disabled explanations. |
+| `TaskConsole.qml` / `OverlayButton.qml` | Task output and reusable overlay controls. |
+| `TaskRunner.qml` / `task-runner.sh` | Managed task lifecycle, bounded output, and process group cancellation. |
 | `ProjectStore.js` | All pure logic (config normalization, scan args, parsing, merge/rank/filter, action + command building, frecency). No Qt types, so it is unit-testable with plain `node`. |
 | `project-manager.sh` | Scan helper: walks the roots, reports git branch/dirty/ahead/behind and remote, detects project types (`package.json`, `Cargo.toml`, `go.mod`, …) and generates tasks from `package.json` scripts / `Makefile` / `justfile` / tool markers, and lists which editor/action commands exist on `$PATH`. Emits JSON. |
 | `manifest.json` | Plugin manifest (`overlay` kind, `keepLoaded`). |
@@ -258,6 +292,3 @@ filesystem + git discovery in one fast pass.
 ## License
 
 [MIT](LICENSE) © 2026 Ankit Kumar (anky209e)
-
-Actions are grouped into Open, Git, Tasks, and Project, with explanations for
-disabled actions. Project rows show compact Git badges and a clickable pin.

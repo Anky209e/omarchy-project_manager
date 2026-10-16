@@ -37,6 +37,7 @@ function defaultConfig() {
     scale: 0,
     // Run project tasks in a terminal window so their output is visible.
     tasksInTerminal: true,
+    taskMode: "managed",
     discovery: {
       enabled: true,
       roots: ["~/Projects"],
@@ -156,6 +157,9 @@ function normalizeConfig(raw, home) {
     defaultEditor: base.defaultEditor,
     scale: 0,
     tasksInTerminal: parsed.tasksInTerminal === undefined ? base.tasksInTerminal : !!parsed.tasksInTerminal,
+    taskMode: ["managed", "terminal", "background"].indexOf(parsed.taskMode) >= 0
+      ? parsed.taskMode : (parsed.tasksInTerminal === undefined ? "managed"
+        : (parsed.tasksInTerminal ? "terminal" : "background")),
     discovery: mergeDiscovery(base.discovery, parsed.discovery),
     editors: mergeEditors(base.editors, parsed.editors),
     projects: normalizeProjects(parsed.projects, home)
@@ -673,7 +677,8 @@ function actionsFor(project, config, available, effectiveEditorId) {
 }
 
 // Returns { argv: [...] } for direct execution or { shell: "..." } for a
-// string that must run under a shell. null means "nothing to run".
+// string that must run under a shell, or { managed: {...} } for the task runner.
+// null means "nothing to run".
 function commandFor(action, project, config) {
   if (!action) return null
   var path = project ? project.path : ""
@@ -714,7 +719,10 @@ function commandFor(action, project, config) {
   if (action.kind === "task") {
     if (!action.command) return null
     var cmd = "cd " + shellQuote(path) + " && " + action.command
-    if (config && config.tasksInTerminal === false) return { shell: cmd }
+    var mode = config && config.taskMode ? config.taskMode : "managed"
+    if (mode === "managed") return { managed: { path: path, command: action.command,
+      label: action.label, projectName: project.name } }
+    if (mode === "background") return { shell: cmd }
     return terminalArgv(path, cmd, "io.github.anky209e.project-manager.task")
   }
 
