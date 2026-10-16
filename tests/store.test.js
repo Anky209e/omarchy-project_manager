@@ -49,3 +49,39 @@ test('scanner aliases preserve metadata and suppress duplicate configured paths'
   assert.deepEqual(projects[0].tags, ['custom'])
   assert.equal(projects[0].tasks[0].command, 'make')
 })
+
+test('preferences persist explicit unpin and editor choices without changing config', () => {
+  const config = Store.normalizeConfig({projects: [{path: '/tmp/demo', pinned: true}]}, '/home/test')
+  const original = Store.mergeProjects([], config)
+  let prefs = Store.parsePreferences('')
+  prefs = Store.updatePreference(prefs, '/tmp/demo/', 'pinned', false)
+  prefs = Store.updatePreference(prefs, '/tmp/demo', 'editor', 'nvim')
+  const restored = Store.parsePreferences(JSON.stringify(prefs))
+  const projects = Store.applyPreferences(original, restored, config, ['nvim'])
+  assert.equal(projects[0].pinned, false)
+  assert.equal(projects[0].editorId, 'nvim')
+  assert.equal(projects[0].editorLabel, 'Neovim')
+  assert.equal(original[0].pinned, true)
+  assert.equal(original[0].editor, '')
+  assert.equal(config.projects[0].pinned, true)
+})
+
+test('malformed preferences and removed editors fall back safely', () => {
+  const config = Store.normalizeConfig({}, '/home/test')
+  const projects = Store.mergeProjects([{path: '/tmp/demo'}], config)
+  for (const raw of ['bad json', 'null', '{"version":9,"projects":{}}']) {
+    assert.deepEqual(Store.parsePreferences(raw), {version: 1, projects: {}})
+  }
+  const preferences = {version: 1, projects: {'/tmp/demo': {editor: 'removed', pinned: 'yes'}}}
+  assert.equal(Store.applyPreferences(projects, preferences, config, [])[0].editorId, 'omarchy')
+  assert.equal(Store.applyPreferences(projects, preferences, config, [])[0].pinned, false)
+})
+
+test('matching pinned projects stay first in search results', () => {
+  const projects = [
+    {name: 'Demo', path: '/tmp/demo', pinned: false},
+    {name: 'A demo project', path: '/tmp/pinned', pinned: true}
+  ]
+  assert.equal(Store.filterProjects(projects, 'demo')[0].path, '/tmp/pinned')
+  assert.equal(Store.filterProjects(projects, 'no match').length, 0)
+})

@@ -437,6 +437,7 @@ function filterProjects(projects, query) {
     if (s > 0) scored.push({ p: list[i], s: s })
   }
   scored.sort(function (a, b) {
+    if (a.p.pinned !== b.p.pinned) return a.p.pinned ? -1 : 1
     if (Math.abs(a.s - b.s) > 1e-9) return b.s - a.s
     return String(a.p.name).localeCompare(String(b.p.name))
   })
@@ -724,6 +725,53 @@ function newProjectCommand(config, home, name) {
   return { argv: ["bash", "-lc", "mkdir -p " + shellQuote(dir) + " && git -C " + shellQuote(dir) + " init"], path: dir }
 }
 
+// ---------------------------------------------------------- preferences
+
+function parsePreferences(raw) {
+  try {
+    var data = typeof raw === "string" ? JSON.parse(raw) : raw
+    if (!isObject(data) || data.version !== 1 || !isObject(data.projects)) return {version: 1, projects: {}}
+    var projects = {}
+    for (var path in data.projects) {
+      if (path.charAt(0) !== "/" || !isObject(data.projects[path])) continue
+      var entry = data.projects[path], clean = {}
+      if (typeof entry.pinned === "boolean") clean.pinned = entry.pinned
+      if (typeof entry.editor === "string") clean.editor = entry.editor
+      projects[pathKey(path)] = clean
+    }
+    return {version: 1, projects: projects}
+  } catch (e) { return {version: 1, projects: {}} }
+}
+
+function updatePreference(preferences, path, field, value) {
+  var out = parsePreferences(preferences)
+  var key = pathKey(path)
+  if (key.charAt(0) !== "/") return out
+  var entry = out.projects[key] || {}
+  if (field === "pinned" && typeof value === "boolean") entry.pinned = value
+  if (field === "editor" && typeof value === "string") entry.editor = value
+  out.projects[key] = entry
+  return out
+}
+
+function applyPreferences(projects, preferences, config, available) {
+  var prefs = parsePreferences(preferences).projects
+  return projects.map(function (project) {
+    var p = {}
+    for (var key in project) p[key] = project[key]
+    var saved = prefs[pathKey(p.path)] || {}
+    if (typeof saved.pinned === "boolean") p.pinned = saved.pinned
+    if (saved.editor && config.editors[saved.editor]) p.editor = saved.editor
+    var id = p.editor
+    if (!id && p.godot && config.editors.godot
+        && commandAvailable(config.editors.godot.command, available)) id = "godot"
+    if (!id) id = config.defaultEditor
+    p.editorId = id
+    p.editorLabel = config.editors[id] ? config.editors[id].label : id
+    return p
+  })
+}
+
 // ---------------------------------------------------------------- usage
 
 function parseUsage(raw) {
@@ -751,6 +799,9 @@ function recordUsage(usage, path, now) {
 
 if (typeof module !== "undefined") {
   module.exports = {
+    parsePreferences: parsePreferences,
+    updatePreference: updatePreference,
+    applyPreferences: applyPreferences,
     isObject: isObject,
     expandPath: expandPath,
     basename: basename,

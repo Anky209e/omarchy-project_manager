@@ -37,7 +37,9 @@ Item {
   property var actions: []
   property var usage: ({})
   property var availableCommands: []
-  property var editorOverrides: ({})
+  property var preferences: ({version: 1, projects: {}})
+  property bool stateReady: false
+  property bool preferencesLoaded: false
 
   readonly property string scriptPath: {
     var u = Qt.resolvedUrl("project-manager.sh").toString()
@@ -48,6 +50,7 @@ Item {
   property string configPath: root.home + "/.config/omarchy/project-manager.json"
   property string stateDir: root.home + "/.local/state/omarchy/project-manager"
   property string usagePath: root.stateDir + "/usage.json"
+  property string preferencesPath: root.stateDir + "/preferences.json"
 
   // Shares the [menu] surface tokens, so themes that style the menu also style
   // this overlay.
@@ -141,7 +144,7 @@ Item {
       } catch (e) {}
     }
 
-    root.rebuild()
+    root.rebuild(false)
     if (!root.scanning) root.runScan()
     Qt.callLater(function () { keyCatcher.forceActiveFocus() })
   }
@@ -166,6 +169,7 @@ Item {
 
   function loadUsage(raw) {
     root.usage = Store.parseUsage(raw)
+    root.rebuild()
   }
 
   function runScan() {
@@ -193,8 +197,10 @@ Item {
 
   // ---------------------------------------------------------------- model
 
-  function rebuild() {
+  function rebuild(preserveSelection) {
+    var selectedPath = preserveSelection !== false && root.currentProject ? root.currentProject.path : ""
     var merged = Store.mergeProjects(root.scanned, root.config, root.home)
+    merged = Store.applyPreferences(merged, root.preferences, root.config, root.availableCommands)
     root.projects = Store.rankProjects(merged, root.usage, Date.now())
 
     var visible = Store.filterProjects(root.projects, root.filterText)
@@ -227,6 +233,11 @@ Item {
       root.selectedIndex = 0
     }
 
+    if (selectedPath) {
+      for (var j = 0; j < visible.length; j++) {
+        if (visible[j].path === selectedPath) { root.selectedIndex = j; break }
+      }
+    }
     root.rebuildActions()
     Qt.callLater(function () {
       if (displayModel.count > 0) resultList.positionViewAtIndex(root.selectedIndex, ListView.Contain)
@@ -240,7 +251,7 @@ Item {
       root.actionIndex = 0
       return
     }
-    var effective = root.editorOverrides[project.path] || project.editor
+    var effective = project.editorId
     root.actions = Store.actionsFor(project, root.config, root.availableCommands, effective)
     if (root.actionIndex >= root.actions.length) root.actionIndex = Math.max(0, root.actions.length - 1)
     if (root.actionIndex < 0) root.actionIndex = 0
@@ -284,7 +295,7 @@ Item {
     root.selectedIndex = 0
     root.cursorActive = true
     root.disarmPointer()
-    root.rebuild()
+    root.rebuild(false)
     Qt.callLater(function () { keyCatcher.forceActiveFocus() })
   }
 
@@ -307,6 +318,8 @@ Item {
     var project = root.currentProject
     if (!project) return
 
+    if (action.kind === "pin") { root.togglePin(); return }
+    if (action.kind === "cycle-editor") { root.cycleEditor(); return }
     var command = Store.commandFor(action, project, root.config)
     if (!command) return
 
@@ -400,20 +413,28 @@ Item {
     usageFile.setText(JSON.stringify(root.usage, null, 2) + "\n")
   }
 
+  function savePreference(path, field, value) {
+    if (!root.stateReady || !root.preferencesLoaded) {
+      root.statusText = "Preferences are not ready yet"
+      return
+    }
+    root.preferences = Store.updatePreference(root.preferences, path, field, value)
+    preferencesFile.setText(JSON.stringify(root.preferences, null, 2) + "\n")
+    root.rebuild()
+  }
+
+  function togglePin() {
+    var project = root.currentProject
+    if (project) root.savePreference(project.path, "pinned", !project.pinned)
+  }
+
   function cycleEditor() {
     var project = root.currentProject
     if (!project) return
     var ids = Store.availableEditors(root.config, root.availableCommands)
     if (ids.length === 0) return
-    var current = root.editorOverrides[project.path] || project.editor
-    var index = ids.indexOf(current)
-    var next = ids[(index + 1) % ids.length]
-
-    var overrides = {}
-    for (var k in root.editorOverrides) overrides[k] = root.editorOverrides[k]
-    overrides[project.path] = next
-    root.editorOverrides = overrides
-    root.rebuildActions()
+    var index = ids.indexOf(project.editorId)
+    root.savePreference(project.path, "editor", ids[(index + 1) % ids.length])
   }
 
   Component.onCompleted: initProc.running = true
@@ -429,6 +450,32 @@ Item {
   Process {
     id: initProc
     command: ["mkdir", "-p", root.stateDir]
+    onExited: function (code) {
+      root.stateReady = code === 0
+      if (code !== 0) root.statusText = "Cannot create preferences directory"
+    }
+  }
+
+  FileView {
+    id: preferencesFile
+    path: root.stateReady ? root.preferencesPath : ""
+    watchChanges: true
+    atomicWrites: true
+    printErrors: false
+    onLoaded: {
+      root.preferences = Store.parsePreferences(text())
+      root.preferencesLoaded = true
+      root.rebuild()
+    }
+    onLoadFailed: {
+      if (root.stateReady) {
+        root.preferences = Store.parsePreferences("")
+        root.preferencesLoaded = true
+        root.rebuild()
+      }
+    }
+    onSaveFailed: root.statusText = "Could not save project preferences"
+    onFileChanged: reload()
   }
 
   FileView {
@@ -537,6 +584,11 @@ Item {
             return
           }
 
+          if (ctrlMod && event.key === Qt.Key_P) {
+            root.togglePin()
+            event.accepted = true
+            return
+          }
           if (event.key === Qt.Key_Escape) {
             if (root.filterText) root.setFilter("")
             else if (root.focusArea === "actions") { root.focusArea = "projects"; root.actionIndex = 0 }

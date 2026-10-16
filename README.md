@@ -31,7 +31,10 @@ declared — so the clipboard's own `SUPER + CTRL + V` keeps working.
   so the plugin follows that choice automatically.
 - **Many editors** — VS Code, Zed, Cursor, Neovim (opens in a terminal), and
   Godot built in; add your own. Unavailable editors are shown greyed out, and
-  `Ctrl+E` cycles the editor for the current project.
+  `Ctrl+E` cycles the editor for the current project and remembers your choice.
+- **Pin projects** — `Ctrl+P` toggles a pin. Pins and editor choices are saved in
+  `~/.local/state/omarchy/project-manager/preferences.json`, overriding config
+  without rewriting it. Delete that file to restore configured defaults.
 - **Godot projects** — anything with a `project.godot` opens in the Godot editor
   automatically (when `godot` is installed), unless you set an editor for it.
 - **Terminal & files** — open a terminal in the project dir (`Shift+Enter`) or
@@ -160,7 +163,8 @@ editors or launch the overlay.
 | `Enter` | Open the highlighted action (default: editor) |
 | `Shift+Enter` | Open a terminal in the project |
 | `Alt+Enter` | Open the file manager |
-| `Ctrl+E` | Cycle editor for the current project |
+| `Ctrl+E` | Cycle and remember the project editor |
+| `Ctrl+P` | Pin or unpin the project |
 | `Ctrl+G` | Open the repository in the browser |
 | `Ctrl+Shift+G` | Open the repo in lazygit |
 | `Ctrl+Y` | Copy the project path |
