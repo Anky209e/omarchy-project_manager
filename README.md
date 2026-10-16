@@ -7,10 +7,8 @@ to the repo, per-project tasks, and frecency ranking of what you actually use.
 
 ![Project Manager overlay](preview.png)
 
-It is an Omarchy *overlay* plugin (same kind as the built-in clipboard) whose
-styling derives from `omarchy.clipboard`, so it shares the `[menu]` theme
-tokens. It runs as its own plugin — the clone metadata is intentionally **not**
-declared — so the clipboard's own `SUPER + CTRL + V` keeps working.
+It is an Omarchy overlay plugin that uses the shell’s `[menu]` theme tokens.
+It has its own plugin ID and does not replace the built-in clipboard.
 
 ## Features
 
@@ -110,46 +108,61 @@ omarchy plugin remove io.github.anky209e.project-manager
 ```
 
 Removal deletes the plugin folder only. Your config
-(`~/.config/omarchy/project-manager.json`) and frecency state
-(`~/.local/state/omarchy/project-manager/usage.json`) and preferences
+(`~/.config/omarchy/project-manager.json`), frecency state
+(`~/.local/state/omarchy/project-manager/usage.json`), and preferences
 (`~/.local/state/omarchy/project-manager/preferences.json`) are left untouched.
 
 ## Requirements
 
 - Omarchy shell with third-party plugins enabled (Quattro).
 - `bash`, `git`, `jq` (for the scan helper), `setsid` (for managed tasks).
-- For actions: `wl-copy`, `xdg-open`, `xdg-terminal-exec`,
-  `omarchy-launch-browser`. Actions whose tool is missing are disabled, not
-  broken.
+- Standard Omarchy/Arch tools: GNU coreutils, findutils, grep, sed, and util-linux.
+- For GUI and terminal actions: `uwsm-app`, `xdg-open`, `xdg-terminal-exec`,
+  `omarchy-launch-editor`, and `omarchy-launch-browser`.
+- Optional: `wl-copy` for clipboard actions; `lazygit` for its Git action;
+  your chosen editors and task tools (npm, Cargo, Make, Just, and others).
+  Actions explain which tools are missing.
 
-The plugin is self-contained: no install hook, no `sudo`, no network access of
-its own. It shells out only to the tools listed above (and to the editors /
-tasks you configure).
+No sudo or pkexec is required. There are no install hooks, automatic dependency
+installations, or telemetry. Discovery reads local directories and Git metadata.
+Cloning contacts the repository you request. Explicitly launched tasks may use
+the network, install project dependencies, or change project files according to
+the command. They run with your normal user permissions. The plugin writes its
+own state files and creates/clones projects only when you request it; it does
+not edit Hyprland bindings or the Omarchy shell configuration.
+
+## Release notes
+
+Version 1.1.0 adds persistent project preferences, grouped actions, and managed
+task output. See [CHANGELOG.md](CHANGELOG.md) for fixes and migration notes.
+Marketplace update preparation is documented in [docs/marketplace.md](docs/marketplace.md).
 
 ## Development
 
-Clone the repo and symlink it into your user plugin directory so edits are live:
+Clone and validate the source without changing your installed plugin:
 
 ```sh
 git clone https://github.com/Anky209e/omarchy-project_manager.git ~/Projects/omarchy-project_manager
-ln -sfn ~/Projects/omarchy-project_manager ~/.config/omarchy/plugins/io.github.anky209e.project-manager
-omarchy-shell shell rescanPlugins
-omarchy plugin list        # should list io.github.anky209e.project-manager
-omarchy plugin validate ~/Projects/omarchy-project_manager
-omarchy plugin enable io.github.anky209e.project-manager
+cd ~/Projects/omarchy-project_manager
+omarchy plugin validate .
 ```
 
-> **Reloading while developing:** the plugin directory is a symlink, so the
-> shell's file watcher does not see edits. After changing any plugin file run
-> `omarchy restart shell` to pick them up (`omarchy-shell shell rescanPlugins`
-> only re-reads plugin folders).
+For an isolated development copy, place these source files in a separate test
+plugin directory and use a separate plugin ID. Omarchy validation rejects
+symlinks inside plugin folders, so development symlinks are not part of the
+supported installation path. After updating the installed plugin, restart the
+shell to load the kept overlay instance:
+
+```sh
+omarchy restart shell
+```
 
 Run the regression checks from the repository root:
 
 ```sh
 python3 -m unittest discover -s tests
 node --test tests/store.test.js
-bash -n project-manager.sh
+bash -n project-manager.sh task-runner.sh
 ```
 
 The tests use temporary local repositories and stub tools. For UI checks on a
