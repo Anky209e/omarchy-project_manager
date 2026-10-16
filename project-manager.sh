@@ -264,6 +264,9 @@ while IFS= read -r real; do
   [[ -f $real/project.godot ]] && godot=true
   types=$(detect_types "$real")
   tasks=$(detect_tasks "$real")
+  while IFS= read -r required; do
+    [[ -n $required ]] && NEEDED+=("$required")
+  done < <(jq -r '.[].requires | select(length > 0)' <<<"$tasks")
   jq -cn --arg name "${names[$real]}" --arg path "$real" --argjson git "$git" --argjson godot "$godot" \
     --argjson types "$types" --argjson tasks "$tasks" \
     '{name:$name, path:$path, git:$git, godot:$godot, types:$types, tasks:$tasks}' >>"$tmp"
