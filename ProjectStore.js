@@ -704,7 +704,8 @@ function cloneCommand(config, home, url) {
   var u = String(url || "").trim()
   if (!/^(https?:\/\/|git@|ssh:\/\/|git:\/\/|file:\/\/|\/)/.test(u)) return null
   var root = defaultRoot(config, home)
-  return terminalArgv(root, "git clone " + shellQuote(u), "io.github.anky209e.project-manager.clone")
+  return { argv: ["bash", "-lc", "mkdir -p " + shellQuote(root)
+    + " && cd " + shellQuote(root) + " && git clone -- " + shellQuote(u)] }
 }
 
 function newProjectCommand(config, home, name) {

@@ -39,7 +39,9 @@ declared — so the clipboard's own `SUPER + CTRL + V` keeps working.
 - **lazygit** — any git repo gets a single "Open in lazygit" action (enabled when
   `lazygit` is installed), also bound to `Ctrl+Shift+G`.
 - **Clone & create** — `Ctrl+L` clones a repo into your first discovery root;
-  `Ctrl+N` scaffolds a new project (`mkdir` + `git init`).
+  `Ctrl+N` scaffolds a new project (`mkdir` + `git init`). Operations run in
+  the overlay, report failures, and refresh discovery when they finish.
+- **Fresh metadata** — opening the overlay refreshes projects and Git status.
 - **Browser & clipboard** — `Ctrl+G` opens the repository remote; `Ctrl+Y` copies
   the project path.
 - **Fuzzy search** — filter matches on name, path, tags, editor and branch as a

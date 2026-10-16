@@ -142,7 +142,7 @@ Item {
     }
 
     root.rebuild()
-    if (!root.scannedOnce && !root.scanning) root.runScan()
+    if (!root.scanning) root.runScan()
     Qt.callLater(function () { keyCatcher.forceActiveFocus() })
   }
 
@@ -339,23 +339,21 @@ Item {
     var value = root.promptText.trim()
     root.closePrompt()
     if (!value) return
+    if (projectProc.running) { root.statusText = "A project operation is already running"; return }
 
     if (kind === "new-project") {
       var created = Store.newProjectCommand(root.config, root.home, value)
       if (!created) { root.statusText = "Invalid project name"; return }
-      Quickshell.execDetached(created.argv)
-      root.rescanSoon()
+      projectProc.command = created.argv
+      root.statusText = "Creating project…"
+      projectProc.running = true
     } else if (kind === "clone") {
       var clone = Store.cloneCommand(root.config, root.home, value)
       if (!clone) { root.statusText = "Invalid repository URL"; return }
-      Quickshell.execDetached(clone.argv)
-      root.opened = false
-      root.rescanSoon()
+      projectProc.command = clone.argv
+      root.statusText = "Cloning repository…"
+      projectProc.running = true
     }
-  }
-
-  function rescanSoon() {
-    rescanTimer.restart()
   }
 
   function runFirstAction() {
@@ -466,11 +464,18 @@ Item {
     onExited: root.scanning = false
   }
 
-  Timer {
-    id: rescanTimer
-    interval: 2200
-    repeat: false
-    onTriggered: root.runScan()
+  Process {
+    id: projectProc
+    property string errorOutput: ""
+    onStarted: errorOutput = ""
+    stderr: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: projectProc.errorOutput = text.trim()
+    }
+    onExited: function (exitCode, exitStatus) {
+      if (exitCode === 0 && exitStatus === 0) root.runScan()
+      else root.statusText = projectProc.errorOutput || "Project operation failed"
+    }
   }
 
   PanelWindow {
