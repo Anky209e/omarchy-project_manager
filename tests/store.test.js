@@ -31,3 +31,21 @@ test('clone commands finish after Git and propagate errors', () => {
     assert.notEqual(cp.spawnSync(command[0], command.slice(1)).status, 0)
   } finally { fs.rmSync(dir, {recursive: true, force: true}) }
 })
+
+test('scanner aliases preserve metadata and suppress duplicate configured paths', () => {
+  const config = Store.normalizeConfig({projects: [
+    {path: '~/linked/../linked/demo/', name: 'Linked project', pinned: true,
+      editor: 'nvim', tags: ['custom'], tasks: {Build: 'make'}}
+  ]}, '/home/test')
+  const scan = Store.parseScan(JSON.stringify({projects: [
+    {path: '/real/demo', name: 'demo', aliases: ['/home/test/linked/../linked/demo/']}
+  ]}))
+  const projects = Store.mergeProjects(scan.projects, config)
+  assert.equal(projects.length, 1)
+  assert.equal(projects[0].path, '/real/demo')
+  assert.equal(projects[0].name, 'Linked project')
+  assert.equal(projects[0].pinned, true)
+  assert.equal(projects[0].editor, 'nvim')
+  assert.deepEqual(projects[0].tags, ['custom'])
+  assert.equal(projects[0].tasks[0].command, 'make')
+})

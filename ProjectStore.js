@@ -235,6 +235,7 @@ function parseScan(raw) {
       projects.push({
         name: String(p.name || basename(p.path)),
         path: String(p.path),
+        aliases: Array.isArray(p.aliases) ? p.aliases.map(String) : [],
         git: normalizeGit(p.git),
         godot: p.godot === true,
         types: Array.isArray(p.types) ? p.types.map(String) : [],
@@ -339,8 +340,16 @@ function mergeProjects(scanned, config, home) {
   for (i = 0; i < list.length; i++) {
     var s = list[i]
     var key = pathKey(s.path)
+    if (used[key]) continue
+    var meta = byPath[key]
+    var aliases = s.aliases || []
+    for (var j = 0; j < aliases.length; j++) {
+      var alias = pathKey(aliases[j])
+      if (!meta && byPath[alias]) meta = byPath[alias]
+      used[alias] = true
+    }
     used[key] = true
-    out.push(buildProject(s.path, s.name, s.git, byPath[key], config, s.godot, s.types, s.tasks))
+    out.push(buildProject(s.path, s.name, s.git, meta, config, s.godot, s.types, s.tasks))
   }
 
   // Configured projects the scan didn't return (discovery off, path missing,

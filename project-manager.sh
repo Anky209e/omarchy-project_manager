@@ -61,12 +61,14 @@ expand() {
 
 declare -A seen=()
 declare -A names=()
+declare -A aliases=()
 
 add_project() {
   local raw="$1" name="$2" path real
   path=$(expand "$raw")
   [[ -d $path ]] || return 0
   real=$(realpath -m -- "$path" 2>/dev/null) || return 0
+  aliases[$real]=$(jq -cn --argjson existing "${aliases[$real]:-[]}" --arg path "$path" '$existing + [$path] | unique')
   [[ -n ${seen[$real]:-} ]] && return 0
   seen[$real]=1
   names[$real]="$name"
@@ -269,8 +271,8 @@ while IFS= read -r real; do
     [[ -n $required ]] && NEEDED+=("$required")
   done < <(jq -r '.[].requires | select(length > 0)' <<<"$tasks")
   jq -cn --arg name "${names[$real]}" --arg path "$real" --argjson git "$git" --argjson godot "$godot" \
-    --argjson types "$types" --argjson tasks "$tasks" \
-    '{name:$name, path:$path, git:$git, godot:$godot, types:$types, tasks:$tasks}' >>"$tmp"
+    --argjson types "$types" --argjson tasks "$tasks" --argjson aliases "${aliases[$real]:-[]}" \
+    '{name:$name, path:$path, aliases:$aliases, git:$git, godot:$godot, types:$types, tasks:$tasks}' >>"$tmp"
 done < <(printf '%s\n' "${!seen[@]}" | sort)
 
 avail=()

@@ -65,6 +65,19 @@ class ScannerTests(unittest.TestCase):
             self.assertIn(str(path), projects)
             self.assertIsNotNone(projects[str(path)]['git'])
 
+    def test_canonical_projects_include_configured_aliases(self):
+        repo = self.root / 'real' / 'repo'
+        repo.mkdir(parents=True)
+        self.git('init', repo)
+        alias = self.root / 'linked'
+        alias.symlink_to(repo.parent, target_is_directory=True)
+        configured = str(alias / 'repo') + '/../repo/'
+        result = self.scan('--root', self.root, '--', configured, repo)
+        self.assertEqual(len(result['projects']), 1)
+        project = result['projects'][0]
+        self.assertEqual(project['path'], str(repo))
+        self.assertIn(configured, project['aliases'])
+
 
 if __name__ == '__main__':
     unittest.main()
