@@ -174,7 +174,7 @@ detect_types() {
 }
 
 node_tasks() {
-  local d="$1" pm=npm scripts s i=0
+  local d="$1" pm=npm scripts s quoted i=0
   has "$d" bun.lockb && pm=bun
   has "$d" pnpm-lock.yaml && pm=pnpm
   has "$d" yarn.lock && pm=yarn
@@ -191,7 +191,8 @@ node_tasks() {
   done <<<"$scripts"
   for s in "${ordered[@]}"; do
     ((i >= 8)) && break
-    task "$pm run $s" "$pm run $s" "$pm"
+    printf -v quoted '%q' "$s"
+    task "$pm run $s" "$pm run -- $quoted" "$pm"
     ((i++))
   done
 }

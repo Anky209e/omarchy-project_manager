@@ -33,6 +33,19 @@ class ScannerTests(unittest.TestCase):
         self.assertIn('npm', result['availableCommands'])
         self.assertIn('npm', [t['requires'] for t in result['projects'][0]['tasks']])
 
+    def test_script_names_are_literal_arguments(self):
+        capture = self.root / 'args.json'
+        self.tool('npm', 'python3 -c \'import json,sys; json.dump(sys.argv[1:],open(sys.argv[1],"w"))\' "$CAPTURE" "$@"')
+        name = "dev; touch INJECTED $(touch SUBSTITUTED) 'quoted'"
+        (self.root / 'package.json').write_text(json.dumps({'scripts': {name: 'true'}}))
+        result = self.scan('--', self.root)
+        command = result['projects'][0]['tasks'][1]['command']
+        subprocess.run(['bash', '-c', command], cwd=self.root,
+                       env=dict(self.env, CAPTURE=str(capture)), check=True)
+        self.assertEqual(json.loads(capture.read_text())[1:], ['run', '--', name])
+        self.assertFalse((self.root / 'INJECTED').exists())
+        self.assertFalse((self.root / 'SUBSTITUTED').exists())
+
 
 if __name__ == '__main__':
     unittest.main()
