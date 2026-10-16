@@ -106,7 +106,7 @@ discover_root() {
 
   local d
   while IFS= read -r d; do
-    [[ -d $d/.git || -f $d/project.godot ]] || continue
+    [[ -d $d/.git || -f $d/.git || -f $d/project.godot ]] || continue
     add_project "$d" "$(basename "$d")"
   done < <(find "$root" -maxdepth "$depth" -type d "${prunable[@]}" -type d -print 2>/dev/null)
 }

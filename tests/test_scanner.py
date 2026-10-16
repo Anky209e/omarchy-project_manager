@@ -46,6 +46,25 @@ class ScannerTests(unittest.TestCase):
         self.assertFalse((self.root / 'INJECTED').exists())
         self.assertFalse((self.root / 'SUBSTITUTED').exists())
 
+    def git(self, *args):
+        return subprocess.run(['git', *map(str, args)], check=True,
+                              capture_output=True, text=True)
+
+    def test_discovers_worktrees_and_submodules(self):
+        repo = self.root / 'repo'
+        self.git('init', repo)
+        self.git('-C', repo, '-c', 'user.name=Test', '-c', 'user.email=test@example.com',
+                 'commit', '--allow-empty', '-m', 'Initial')
+        worktree = self.root / 'worktree'
+        self.git('-C', repo, 'worktree', 'add', worktree)
+        self.git('-c', 'protocol.file.allow=always', '-C', repo,
+                 'submodule', 'add', repo, 'sub')
+        result = self.scan('--root', self.root)
+        projects = {p['path']: p for p in result['projects']}
+        for path in (repo, worktree, repo / 'sub'):
+            self.assertIn(str(path), projects)
+            self.assertIsNotNone(projects[str(path)]['git'])
+
 
 if __name__ == '__main__':
     unittest.main()
