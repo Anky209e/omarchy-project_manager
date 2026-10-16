@@ -85,3 +85,21 @@ test('matching pinned projects stay first in search results', () => {
   assert.equal(Store.filterProjects(projects, 'demo')[0].path, '/tmp/pinned')
   assert.equal(Store.filterProjects(projects, 'no match').length, 0)
 })
+
+test('actions are grouped without changing task shortcut order and explain missing tools', () => {
+  const config = Store.normalizeConfig({}, '/home/test')
+  const project = {path: '/tmp/demo', name: 'Demo', tasks: [
+    {name: 'Build', command: 'make', requires: 'make'},
+    {name: 'Test', command: 'make test', requires: 'make'}
+  ]}
+  const actions = Store.actionsFor(project, config, ['setsid'])
+  assert.deepEqual([...new Set(actions.map(a => a.group))], ['Open', 'Git', 'Tasks', 'Project'])
+  assert.equal(actions[0].kind, 'editor-direct')
+  assert.equal(actions[0].enabled, false)
+  assert.match(actions[0].disabledReason, /omarchy-launch-editor/)
+  const tasks = actions.filter(a => a.kind === 'task')
+  assert.deepEqual(tasks.map(t => t.hint), ['Ctrl 1', 'Ctrl 2'])
+  assert.match(tasks[0].disabledReason, /make/)
+  const enabled = Store.actionsFor(project, config, ['setsid', 'make', 'uwsm-app', 'xdg-terminal-exec']).filter(a => a.kind === 'task')
+  assert.equal(enabled[0].enabled, true)
+})

@@ -631,7 +631,45 @@ function actionsFor(project, config, available, effectiveEditorId) {
     })
   }
 
-  return actions
+  actions.push({id: "pin", kind: "pin", label: project.pinned ? "Unpin project" : "Pin project",
+    hint: "Ctrl P", enabled: true})
+  actions.push({id: "cycle-editor", kind: "cycle-editor", label: "Change editor",
+    hint: "Ctrl E", enabled: availableEditors(config, available).length > 0})
+
+  var order = {Open: 0, Git: 1, Tasks: 2, Project: 3}
+  for (var j = 0; j < actions.length; j++) {
+    var action = actions[j]
+    action.group = action.kind === "task" ? "Tasks"
+      : (action.kind === "github" || action.kind === "terminal-cmd" ? "Git"
+        : (["copy", "pin", "cycle-editor"].indexOf(action.kind) >= 0 ? "Project" : "Open"))
+    action.disabledReason = ""
+    var required = []
+    if (action.kind.indexOf("editor-") === 0) {
+      required.push(editor.command)
+      if (editor.kind !== "direct") required.push("setsid", "uwsm-app")
+      if (editor.kind === "terminal") required.push("xdg-terminal-exec")
+    } else if (action.kind === "terminal") required = ["setsid", "uwsm-app", "xdg-terminal-exec"]
+    else if (action.kind === "files") required = ["setsid", "uwsm-app", "xdg-open"]
+    else if (action.kind === "github") required = ["setsid", "uwsm-app", "omarchy-launch-browser"]
+    else if (action.kind === "terminal-cmd") required = ["setsid", "uwsm-app", "xdg-terminal-exec", "lazygit"]
+    else if (action.kind === "copy") required = ["wl-copy"]
+    else if (action.kind === "task") {
+      if (action.requires) required.push(action.requires)
+      var taskMode = config.taskMode || (config.tasksInTerminal === false ? "background" : "terminal")
+      if (taskMode === "terminal") required.push("setsid", "uwsm-app", "xdg-terminal-exec")
+      else if (taskMode !== "background") required.push("setsid")
+      if (!action.command) action.disabledReason = "No command configured"
+    }
+    var missing = required.filter(function (cmd) { return !commandAvailable(cmd, available) })
+    if (missing.length) action.disabledReason = "Missing: " + missing.join(", ")
+    if (action.kind === "github" && !url) action.disabledReason = "No supported repository remote"
+    if (action.kind === "cycle-editor" && !action.enabled) action.disabledReason = "No installed editors found"
+    if (action.disabledReason) action.enabled = false
+  }
+  // Keep the editor first within Open and preserve task shortcut numbering.
+  return actions.map(function (action, index) { return {action: action, index: index} })
+    .sort(function (a, b) { return order[a.action.group] - order[b.action.group] || a.index - b.index })
+    .map(function (entry) { return entry.action })
 }
 
 // Returns { argv: [...] } for direct execution or { shell: "..." } for a

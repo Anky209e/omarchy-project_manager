@@ -258,3 +258,6 @@ filesystem + git discovery in one fast pass.
 ## License
 
 [MIT](LICENSE) © 2026 Ankit Kumar (anky209e)
+
+Actions are grouped into Open, Git, Tasks, and Project, with explanations for
+disabled actions. Project rows show compact Git badges and a clickable pin.

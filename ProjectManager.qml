@@ -1,3 +1,4 @@
+pragma ComponentBehavior: Bound
 import Quickshell
 import Quickshell.Hyprland
 import Quickshell.Io
@@ -589,6 +590,7 @@ Item {
             event.accepted = true
             return
           }
+
           if (event.key === Qt.Key_Escape) {
             if (root.filterText) root.setFilter("")
             else if (root.focusArea === "actions") { root.focusArea = "projects"; root.actionIndex = 0 }
@@ -704,13 +706,15 @@ Item {
             textFormat: Text.PlainText
             anchors.right: parent.right
             anchors.verticalCenter: parent.verticalCenter
-            text: root.statusText.length > 0
-              ? root.statusText
-              : (displayModel.count + (displayModel.count === 1 ? " project" : " projects"))
+            width: Math.min(implicitWidth, parent.width * 0.48)
+            elide: Text.ElideRight
+            text: root.statusText.length > 0 ? root.statusText
+              : (displayModel.count + " / " + root.projects.length + " projects")
             color: root.foreground
             opacity: 0.5
             font.family: root.fontFamily
             font.pixelSize: root.fCaption
+
           }
         }
 
@@ -720,6 +724,7 @@ Item {
 
           Row {
             anchors.fill: parent
+            visible: root.mode !== "output"
             spacing: 0
 
             // ------------------------------------------------------- projects
@@ -761,86 +766,75 @@ Item {
 
                   Row {
                     anchors.fill: parent
-                    anchors.leftMargin: root.sp(12)
-                    anchors.rightMargin: root.sp(12)
-                    anchors.topMargin: root.sp(8)
-                    anchors.bottomMargin: root.sp(8)
+                    anchors.margins: root.sp(10)
                     spacing: root.sp(10)
-
                     Text {
                       id: rowIcon
-                      textFormat: Text.PlainText
                       anchors.verticalCenter: parent.verticalCenter
-                      text: row.icon !== "" ? row.icon : (row.pinned ? "\uf08d" : "\uf07b")
+                      text: row.icon || "\uf07b"
                       color: row.hasCursor ? root.selectedText : root.accent
-                      opacity: row.hasCursor ? 1 : 0.7
                       font.family: root.fontFamily
-                      font.pixelSize: root.fTitle
+                      font.pixelSize: root.fHeading
                     }
-
                     Column {
-                      width: parent.width - rowIcon.width - parent.spacing * 2 - gitInfo.width
+                      width: Math.max(0, parent.width - rowIcon.width - pinButton.width - parent.spacing * 2)
                       anchors.verticalCenter: parent.verticalCenter
-                      spacing: root.sp(1)
-
+                      spacing: root.sp(4)
                       Text {
-                        textFormat: Text.StyledText
                         width: parent.width
+                        textFormat: Text.StyledText
                         text: Store.highlightHtml(row.name, root.filterText)
                         color: row.hasCursor ? root.selectedText : root.foreground
                         font.family: root.fontFamily
                         font.pixelSize: root.fTitle
+                        font.weight: Font.DemiBold
                         elide: Text.ElideRight
                       }
-
                       Text {
-                        textFormat: Text.PlainText
                         width: parent.width
-                        text: row.path
-                        color: root.foreground
+                        textFormat: Text.PlainText
+                        text: row.path.indexOf(root.home + "/") === 0 ? "~" + row.path.slice(root.home.length) : row.path
+                        color: row.hasCursor ? root.selectedText : root.foreground
                         opacity: 0.55
                         font.family: root.fontFamily
                         font.pixelSize: root.fCaption
                         elide: Text.ElideMiddle
                       }
-                    }
-
-                    Column {
-                      id: gitInfo
-                      anchors.verticalCenter: parent.verticalCenter
-                      spacing: root.sp(1)
-
-                      Text {
-                        textFormat: Text.PlainText
-                        anchors.right: parent.right
-                        visible: row.pinned
-                        text: "\uf08d"
-                        color: row.hasCursor ? root.selectedText : root.accent
-                        opacity: 0.8
-                        font.family: root.fontFamily
-                        font.pixelSize: root.fCaption
-                      }
-
-                      Text {
-                        textFormat: Text.PlainText
-                        anchors.right: parent.right
-                        text: row.gitText
-                        color: row.dirty ? root.urgent : root.foreground
-                        opacity: row.dirty ? 0.95 : 0.7
-                        font.family: root.fontFamily
-                        font.pixelSize: root.fCaption
-                      }
-
-                      Text {
-                        textFormat: Text.PlainText
-                        anchors.right: parent.right
-                        text: row.typeLabel !== "" ? row.typeLabel : row.editorLabel
-                        color: root.foreground
-                        opacity: 0.45
-                        font.family: root.fontFamily
-                        font.pixelSize: root.fCaption
+                      Row {
+                        width: parent.width
+                        spacing: root.sp(6)
+                        Rectangle {
+                          visible: row.hasGit
+                          width: Math.min(parent.width * 0.64, branchLabel.implicitWidth + root.sp(12))
+                          height: root.fCaption + root.sp(5)
+                          radius: root.sp(3)
+                          color: Util.alpha(row.dirty ? root.urgent : root.accent, 0.12)
+                          Text {
+                            id: branchLabel
+                            anchors.fill: parent
+                            anchors.leftMargin: root.sp(6)
+                            anchors.rightMargin: root.sp(6)
+                            verticalAlignment: Text.AlignVCenter
+                            text: "\uf126 " + row.gitText
+                            color: row.hasCursor ? root.selectedText : (row.dirty ? root.urgent : root.accent)
+                            font.family: root.fontFamily
+                            font.pixelSize: root.fCaption
+                            elide: Text.ElideRight
+                          }
+                        }
+                        Text {
+                          width: Math.max(0, parent.width - (row.hasGit ? parent.children[0].width + parent.spacing : 0))
+                          anchors.verticalCenter: parent.verticalCenter
+                          text: row.typeLabel || row.editorLabel
+                          color: row.hasCursor ? root.selectedText : root.foreground
+                          opacity: 0.55
+                          font.family: root.fontFamily
+                          font.pixelSize: root.fCaption
+                          elide: Text.ElideRight
+                        }
                       }
                     }
+                    Item { width: pinButton.width; height: 1 }
                   }
 
                   MouseArea {
@@ -858,12 +852,32 @@ Item {
                     }
                     onDoubleClicked: root.activateIndex(row.index)
                   }
+                  OverlayButton {
+                    id: pinButton
+                    anchors.right: parent.right
+                    anchors.verticalCenter: parent.verticalCenter
+                    anchors.rightMargin: root.sp(8)
+                    text: "\uf08d"
+                    foreground: row.hasCursor ? root.selectedText : root.accent
+                    accent: root.accent
+                    fontFamily: root.fontFamily; pixelSize: root.fCaption
+                    padding: root.sp(6); radius: root.sp(4)
+                    opacity: row.pinned ? 1 : 0.3
+                    Accessible.name: row.pinned ? "Unpin " + row.name : "Pin " + row.name
+                    enabled: root.preferencesLoaded
+                    onClicked: {
+                      root.selectedIndex = row.index
+                      root.togglePin()
+                    }
+                  }
+
                 }
               }
 
               Column {
                 anchors.centerIn: parent
-                spacing: root.sp(8)
+                width: Math.max(0, parent.width - root.contentMargin * 2)
+                spacing: root.sp(12)
                 visible: displayModel.count === 0
 
                 Text {
@@ -888,6 +902,38 @@ Item {
                   horizontalAlignment: Text.AlignHCenter
                   width: parent.width
                 }
+                Text {
+                  width: parent.width
+                  text: root.filterText ? "Try another name, path, tag, or branch." : "Clone a repository or create your first project."
+                  textFormat: Text.PlainText
+                  color: root.foreground
+                  opacity: 0.5
+                  font.family: root.fontFamily
+                  font.pixelSize: root.fCaption
+                  wrapMode: Text.Wrap
+                  horizontalAlignment: Text.AlignHCenter
+                }
+                Row {
+                  anchors.horizontalCenter: parent.horizontalCenter
+                  spacing: root.sp(8)
+                  OverlayButton {
+                    text: root.filterText ? "Clear search" : "New project"
+                    foreground: root.foreground; accent: root.accent
+                    fontFamily: root.fontFamily; pixelSize: root.fCaption
+                    radius: root.cornerRadius
+                    onClicked: {
+                      if (root.filterText) root.setFilter("")
+                      else root.openPrompt("new-project", "New project name")
+                    }
+                  }
+                  OverlayButton {
+                    text: "Rescan"
+                    foreground: root.foreground; accent: root.accent
+                    fontFamily: root.fontFamily; pixelSize: root.fCaption
+                    radius: root.cornerRadius
+                    onClicked: root.runScan()
+                  }
+                }
               }
             }
 
@@ -910,7 +956,7 @@ Item {
                 anchors.leftMargin: root.contentMargin
                 anchors.rightMargin: root.contentMargin
                 spacing: root.sSm
-                visible: root.currentProject !== null
+                visible: root.currentProject !== null || root.mode === "prompt"
 
                 Text {
                   textFormat: Text.PlainText
@@ -984,87 +1030,25 @@ Item {
 
                 Item { width: 1; height: root.sSm }
 
-                Text {
-                  textFormat: Text.PlainText
-                  width: parent.width
-                  visible: root.mode === "list"
-                  text: "Actions"
-                  color: root.foreground
-                  opacity: 0.5
-                  font.family: root.fontFamily
-                  font.pixelSize: root.fCaption
-                }
-
-                ListView {
+                ActionMenu {
                   id: actionList
                   width: parent.width
-                  height: Math.max(0, parent.height - y - root.sp(22))
+                  height: Math.max(0, parent.height - y)
                   visible: root.mode === "list"
-                  model: root.actions
-                  clip: true
-                  spacing: root.sp(3)
-                  boundsBehavior: Flickable.StopAtBounds
-
-                  delegate: Rectangle {
-                    id: actionRow
-                    required property int index
-                    required property var modelData
-
-                    readonly property bool hasCursor: root.focusArea === "actions" && index === root.actionIndex
-                    readonly property bool enabled: modelData.enabled !== false
-
-                    width: ListView.view.width
-                    height: root.actionRowHeight
-                    radius: root.cornerRadius
-                    color: hasCursor ? root.selectedBackground : "transparent"
-
-                    Row {
-                      anchors.fill: parent
-                      anchors.leftMargin: root.sp(10)
-                      anchors.rightMargin: root.sp(10)
-                      spacing: root.sp(8)
-
-                      Text {
-                        textFormat: Text.PlainText
-                        anchors.verticalCenter: parent.verticalCenter
-                        width: parent.width - hintText.width - parent.spacing
-                        text: actionRow.modelData.label
-                        color: actionRow.enabled
-                          ? (actionRow.hasCursor ? root.selectedText : root.foreground)
-                          : root.foreground
-                        opacity: actionRow.enabled ? 1 : 0.35
-                        font.family: root.fontFamily
-                        font.pixelSize: root.fBody
-                        elide: Text.ElideRight
-                      }
-
-                      Text {
-                        id: hintText
-                        textFormat: Text.PlainText
-                        anchors.verticalCenter: parent.verticalCenter
-                        text: actionRow.modelData.hint || ""
-                        color: root.foreground
-                        opacity: actionRow.enabled ? 0.45 : 0.2
-                        font.family: root.fontFamily
-                        font.pixelSize: root.fCaption
-                      }
-                    }
-
-                    MouseArea {
-                      anchors.fill: parent
-                      hoverEnabled: true
-                      cursorShape: actionRow.enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
-                      onEntered: {
-                        root.focusArea = "actions"
-                        root.actionIndex = actionRow.index
-                      }
-                      onClicked: {
-                        root.focusArea = "actions"
-                        root.actionIndex = actionRow.index
-                        root.runAction(actionRow.modelData)
-                      }
-                    }
+                  actions: root.actions
+                  selectedIndex: root.actionIndex
+                  keyboardActive: root.focusArea === "actions"
+                  foreground: root.foreground; accent: root.accent
+                  selectedBackground: root.selectedBackground; selectedText: root.selectedText
+                  fontFamily: root.fontFamily
+                  bodySize: root.fBody; captionSize: root.fCaption
+                  rowHeight: root.actionRowHeight; padding: root.sp(10)
+                  cornerRadius: root.cornerRadius
+                  onSelectionRequested: function (index) {
+                    root.focusArea = "actions"
+                    root.actionIndex = index
                   }
+                  onActionRequested: function (index) { root.runAction(root.actions[index]) }
                 }
 
                 Item {
@@ -1116,10 +1100,10 @@ Item {
             if (root.focusArea === "actions") {
               var s = "\u2191\u2193 move  ·  Enter run"
               if (root.hasLazygitAction) s += "  ·  Ctrl \u21e7G lazygit"
-              s += "  ·  Ctrl G browser  ·  Ctrl Y copy  ·  \u2190 project list  ·  Esc close"
+              s += "  ·  Ctrl P pin  ·  Ctrl E editor  ·  \u2190 project list  ·  Esc close"
               return s
             }
-            return "type to search  ·  \u2191\u2193 move  ·  Enter open  ·  \u21e7Enter terminal  ·  \u2325Enter files  ·  \u2192 actions  ·  Ctrl N new  ·  Ctrl L clone  ·  Ctrl R rescan"
+            return "type to search  ·  \u2191\u2193 move  ·  Enter open  ·  \u21e7Enter terminal  ·  \u2325Enter files  ·  \u2192 actions  ·  Ctrl P pin  ·  Ctrl E editor"
           }
           color: root.foreground
           opacity: 0.45
