@@ -168,10 +168,8 @@ detect_types() {
   has "$d" CMakeLists.txt && out+=(cmake)
   has "$d" Gemfile && out+=(ruby)
   has "$d" composer.json && out+=(php)
-  if ((${#out[@]} == 0)); then
-    has "$d" Makefile && out+=(make)
-    { has "$d" justfile || has "$d" Justfile; } && out+=(just)
-  fi
+  has "$d" Makefile && out+=(make)
+  { has "$d" justfile || has "$d" Justfile || has "$d" .justfile; } && out+=(just)
   if ((${#out[@]})); then printf '%s\n' "${out[@]}" | jq -R . | jq -sc .; else printf '[]'; fi
 }
 
@@ -219,7 +217,16 @@ just_tasks() {
     ((i >= 8)) && break
     task "just $t" "just $t" just
     ((i++))
-  done < <(grep -oE '^[a-zA-Z_][a-zA-Z0-9_-]*' "$d/$f" 2>/dev/null | sort -u)
+  done < <(awk '
+    # Only parameterless recipe headers can run without prompting for arguments.
+    # In particular, assignments (:=) and directives are not recipes.
+    /^@?[a-zA-Z_][a-zA-Z0-9_-]*[[:blank:]]*:/ {
+      if ($0 ~ /^[^:]*:=/) next
+      sub(/^@/, "")
+      sub(/[[:blank:]]*:.*/, "")
+      print
+    }
+  ' "$d/$f" 2>/dev/null | sort -u)
 }
 
 detect_tasks() {

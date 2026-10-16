@@ -78,6 +78,28 @@ class ScannerTests(unittest.TestCase):
         self.assertEqual(project['path'], str(repo))
         self.assertIn(configured, project['aliases'])
 
+    def test_make_and_just_tasks_coexist_with_language_tasks(self):
+        (self.root / 'package.json').write_text('{"scripts":{"test":"true"}}')
+        (self.root / 'Makefile').write_text('build:\n\ttrue\n')
+        (self.root / '.justfile').write_text(
+            'export TOKEN := "value"\n'
+            'value := "text"\n'
+            'set shell := ["bash", "-c"]\n'
+            'import "shared.just"\n'
+            '[private]\n'
+            'build:\n    true\n'
+            '@quiet: build\n    true\n'
+            'test arg:\n    true\n'
+            '# comment:\n'
+        )
+        project = self.scan('--', self.root)['projects'][0]
+        self.assertEqual(project['types'], ['node', 'make', 'just'])
+        names = {t['name'] for t in project['tasks']}
+        self.assertIn('npm run test', names)
+        self.assertIn('make build', names)
+        self.assertEqual({n for n in names if n.startswith('just ')},
+                         {'just build', 'just quiet'})
+
 
 if __name__ == '__main__':
     unittest.main()

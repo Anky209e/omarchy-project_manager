@@ -22,7 +22,9 @@ declared — so the clipboard's own `SUPER + CTRL + V` keeps working.
   matching icon/label.
 - **Auto-detected tasks** — project tasks are read straight from `package.json`
   scripts, `Makefile`/`justfile` targets, and `Cargo.toml`/`go.mod`/`pyproject`
-  markers, so most projects need no task config. Tasks with a missing tool are
+  markers, so most projects need no task config. Make and Just tasks also appear
+  alongside language tasks; Just detection lists parameterless recipes from
+  `justfile`, `Justfile`, or `.justfile`. Tasks with a missing tool are
   greyed out.
 - **Omarchy default editor** — by default projects open with whichever editor
   you selected via `omarchy default editor` (through `omarchy-launch-editor`),
@@ -134,6 +136,17 @@ omarchy plugin enable io.github.anky209e.project-manager
 > shell's file watcher does not see edits. After changing any plugin file run
 > `omarchy restart shell` to pick them up (`omarchy-shell shell rescanPlugins`
 > only re-reads plugin folders).
+
+Run the regression checks from the repository root:
+
+```sh
+python3 -m unittest discover -s tests
+node --test tests/store.test.js
+bash -n project-manager.sh
+```
+
+The tests use temporary local repositories and stub tools; they do not open
+editors or launch the overlay.
 
 ## Keybindings
 
