@@ -142,3 +142,22 @@ test('browser links discard remote credentials, query strings and fragments', ()
     assert.ok(!JSON.stringify(parsed).includes('secret'))
   }
 })
+
+test('rows show framework and language icons with versions', () => {
+  const nest = {framework: {id: 'nestjs', version: '12.2.0'}, language: {id: 'typescript', version: '6.0.3'}}
+  assert.equal(Store.stackIcon(nest), Store.stackText({framework: {id: 'nestjs', version: ''}, language: null}).trim())
+  assert.equal(Store.stackText(nest), ' 12.2.0  ·   6.0.3')
+  // Without a framework the row shows the language name and version.
+  assert.equal(Store.stackText({framework: null, language: {id: 'rust', version: '1.78'}}), 'Rust 1.78')
+  assert.equal(Store.stackIcon({framework: null, language: {id: 'rust', version: '1.78'}}), '')
+  assert.equal(Store.stackText({framework: null, language: {id: 'go', version: ''}}), 'Go')
+})
+
+test('unknown or malformed stack data is ignored', () => {
+  assert.equal(Store.stackText(null), '')
+  assert.equal(Store.stackText({framework: {id: 'nope', version: '1'}, language: 'x'}), '')
+  assert.equal(Store.stackIcon(undefined), '')
+  const row = Store.projectRow({name: 'a', path: '/a', types: ['node'], stack: {framework: null, language: null}})
+  assert.equal(row.icon, '')
+  assert.equal(row.stackText, '')
+})

@@ -7,6 +7,8 @@
 # external commands are available. Emits a single JSON object on stdout:
 #
 #   { "projects": [ { "name", "path", "godot": bool, "types": [...],
+#                     "stack": {"framework": {id,version}|null,
+#                               "language": {id,version}|null},
 #                     "tasks": [ {name,command,requires} ],
 #                     "git": {branch,dirty,ahead,behind,remote}|null } ],
 #     "availableCommands": [ ... ] }
@@ -196,6 +198,81 @@ detect_types() {
   if ((${#out[@]})); then printf '%s\n' "${out[@]}" | jq -R . | jq -sc .; else printf '[]'; fi
 }
 
+# Version of an npm dependency: the installed one, else the declared range
+# with its operator stripped. Empty when unknown.
+node_dep_version() {
+  local d="$1" pkg="$2" v
+  v=$(jq -r '.version // empty' "$d/node_modules/$pkg/package.json" 2>/dev/null || true)
+  if [[ -z $v ]]; then
+    v=$(jq -r --arg p "$pkg" '(.dependencies[$p] // .devDependencies[$p] // empty)' "$d/package.json" 2>/dev/null || true)
+  fi
+  sed -E 's/^[^0-9]*//' <<<"$v"
+}
+
+node_has_dep() {
+  jq -e --arg p "$2" '(.dependencies[$p] // .devDependencies[$p]) != null' "$1/package.json" >/dev/null 2>&1
+}
+
+# Framework and language, each with a version when one can be read cheaply.
+# Prints {"framework": {id,version}|null, "language": {id,version}|null}.
+detect_stack() {
+  local d="$1" fw="" fwv="" lang="" langv="" entry pkg id f
+  if has "$d" package.json; then
+    for entry in @nestjs/core:nestjs next:nextjs nuxt:nuxt astro:astro @angular/core:angular \
+                 @sveltejs/kit:sveltekit svelte:svelte vue:vue react:react fastify:fastify express:express; do
+      pkg=${entry%%:*}
+      id=${entry##*:}
+      if node_has_dep "$d" "$pkg"; then
+        fw=$id
+        fwv=$(node_dep_version "$d" "$pkg")
+        break
+      fi
+    done
+    if node_has_dep "$d" typescript || has "$d" tsconfig.json; then
+      lang=typescript
+      langv=$(node_dep_version "$d" typescript)
+    else
+      lang=node
+      langv=$(jq -r '.engines.node // empty' "$d/package.json" 2>/dev/null | sed -E 's/^[^0-9]*//' || true)
+      [[ -z $langv ]] && has "$d" .nvmrc && langv=$(head -1 "$d/.nvmrc" | sed -E 's/^[^0-9]*//')
+    fi
+  elif has "$d" Cargo.toml; then
+    lang=rust
+    langv=$(sed -nE 's/^rust-version *= *"([^"]+)".*/\1/p' "$d/Cargo.toml" | head -1)
+  elif has "$d" go.mod; then
+    lang=go
+    langv=$(sed -nE 's/^go +([0-9.]+).*/\1/p' "$d/go.mod" | head -1)
+  elif has "$d" pyproject.toml || has "$d" requirements.txt || has "$d" Pipfile || has "$d" setup.py; then
+    lang=python
+    has "$d" .python-version && langv=$(head -1 "$d/.python-version")
+    [[ -z $langv ]] && has "$d" pyproject.toml \
+      && langv=$(sed -nE 's/^requires-python *= *"[^0-9]*([0-9.]+).*/\1/p' "$d/pyproject.toml" | head -1)
+    for id in django fastapi flask; do
+      for f in pyproject.toml requirements.txt; do
+        has "$d" "$f" || continue
+        if grep -qiE "(^|[\"' ])$id([>=<~!\"' ]|$)" "$d/$f" 2>/dev/null; then fw=$id; break 2; fi
+      done
+    done
+  elif has "$d" Gemfile; then
+    lang=ruby
+    has "$d" .ruby-version && langv=$(head -1 "$d/.ruby-version")
+    if grep -qE "^[[:space:]]*gem ['\"]rails['\"]" "$d/Gemfile" 2>/dev/null; then
+      fw=rails
+      has "$d" Gemfile.lock && fwv=$(sed -nE 's/^    rails \(([0-9.]+)\)$/\1/p' "$d/Gemfile.lock" | head -1)
+    fi
+  elif has "$d" composer.json; then
+    lang=php
+    langv=$(jq -r '.require.php // empty' "$d/composer.json" 2>/dev/null | sed -E 's/^[^0-9]*//' || true)
+    if jq -e '.require["laravel/framework"] != null' "$d/composer.json" >/dev/null 2>&1; then
+      fw=laravel
+      fwv=$(jq -r '.require["laravel/framework"]' "$d/composer.json" | sed -E 's/^[^0-9]*//')
+    fi
+  fi
+  jq -cn --arg fw "$fw" --arg fwv "$fwv" --arg lang "$lang" --arg langv "$langv" '
+    def item($id; $v): if $id == "" then null else {id: $id, version: $v} end;
+    {framework: item($fw; $fwv), language: item($lang; $langv)}'
+}
+
 node_tasks() {
   local d="$1" pm=npm scripts s quoted i=0
   has "$d" bun.lockb && pm=bun
@@ -296,13 +373,15 @@ while IFS= read -r real; do
   godot=false
   [[ -f $real/project.godot ]] && godot=true
   types=$(detect_types "$real")
+  stack=$(detect_stack "$real")
   tasks=$(detect_tasks "$real")
   while IFS= read -r required; do
     [[ -n $required ]] && NEEDED+=("$required")
   done < <(jq -r '.[].requires | select(length > 0)' <<<"$tasks")
   jq -cn --arg name "${names[$real]}" --arg path "$real" --argjson git "$git" --argjson godot "$godot" \
-    --argjson types "$types" --argjson tasks "$tasks" --argjson aliases "${aliases[$real]:-[]}" \
-    '{name:$name, path:$path, aliases:$aliases, git:$git, godot:$godot, types:$types, tasks:$tasks}' >>"$tmp"
+    --argjson types "$types" --argjson stack "$stack" --argjson tasks "$tasks" \
+    --argjson aliases "${aliases[$real]:-[]}" \
+    '{name:$name, path:$path, aliases:$aliases, git:$git, godot:$godot, types:$types, stack:$stack, tasks:$tasks}' >>"$tmp"
 done < <(printf '%s\n' "${!seen[@]}" | sort)
 
 avail=()

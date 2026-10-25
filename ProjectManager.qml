@@ -216,6 +216,7 @@ Item {
         editorLabel: row.editorLabel,
         icon: row.icon,
         typeLabel: row.typeLabel,
+        stackText: row.stackText,
         gitText: row.gitText,
         branch: row.branch,
         dirty: row.dirty,
@@ -819,6 +820,7 @@ Item {
                   required property string editorLabel
                   required property string icon
                   required property string typeLabel
+                  required property string stackText
                   required property string gitText
                   required property bool dirty
                   required property bool hasGit
@@ -894,7 +896,7 @@ Item {
                         Text {
                           width: Math.max(0, parent.width - (row.hasGit ? parent.children[0].width + parent.spacing : 0))
                           anchors.verticalCenter: parent.verticalCenter
-                          text: row.typeLabel || row.editorLabel
+                          text: row.stackText || row.typeLabel || row.editorLabel
                           color: row.hasCursor ? root.selectedText : root.foreground
                           opacity: 0.55
                           font.family: root.fontFamily

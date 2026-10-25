@@ -243,6 +243,7 @@ function parseScan(raw) {
         git: normalizeGit(p.git),
         godot: p.godot === true,
         types: Array.isArray(p.types) ? p.types.map(String) : [],
+        stack: normalizeStack(p.stack),
         tasks: normalizeScanTasks(p.tasks)
       })
     }
@@ -289,6 +290,67 @@ function typeLabel(types) {
   return t ? TYPE_META[t].label : ""
 }
 
+// Framework and language shown on each row. Icons are Nerd Font glyphs.
+var STACK_META = {
+  nestjs: { icon: "\ue83b", label: "NestJS" },
+  nextjs: { icon: "\ue83e", label: "Next.js" },
+  nuxt: { icon: "\ue84b", label: "Nuxt" },
+  astro: { icon: "\ue735", label: "Astro" },
+  angular: { icon: "\ue753", label: "Angular" },
+  sveltekit: { icon: "\ue8b7", label: "SvelteKit" },
+  svelte: { icon: "\ue8b7", label: "Svelte" },
+  vue: { icon: "\ue8dc", label: "Vue" },
+  react: { icon: "\ue7ba", label: "React" },
+  fastify: { icon: "\ue7d6", label: "Fastify" },
+  express: { icon: "\ue7d3", label: "Express" },
+  django: { icon: "\ue71d", label: "Django" },
+  fastapi: { icon: "\ue7d5", label: "FastAPI" },
+  flask: { icon: "\ue7dc", label: "Flask" },
+  rails: { icon: "\ue73b", label: "Rails" },
+  laravel: { icon: "\ue73f", label: "Laravel" },
+  typescript: { icon: "\ue8ca", label: "TypeScript" },
+  node: { icon: "\ue718", label: "Node" },
+  rust: { icon: "\ue7a8", label: "Rust" },
+  go: { icon: "\ue724", label: "Go" },
+  python: { icon: "\ue73c", label: "Python" },
+  ruby: { icon: "\ue739", label: "Ruby" },
+  php: { icon: "\ue73d", label: "PHP" }
+}
+
+function normalizeStackItem(item) {
+  if (!isObject(item) || !STACK_META[item.id]) return null
+  return { id: String(item.id), version: item.version ? String(item.version) : "" }
+}
+
+function normalizeStack(stack) {
+  if (!isObject(stack)) return { framework: null, language: null }
+  return { framework: normalizeStackItem(stack.framework), language: normalizeStackItem(stack.language) }
+}
+
+// Row summary. With a framework: "<fw icon> 12.2.0 · <lang icon> 6.0.3".
+// Without one: "Rust 1.78" (language name and version). "" when nothing is known.
+function stackText(stack) {
+  var s = normalizeStack(stack)
+  var fw = s.framework
+  var lang = s.language
+  function withVersion(text, item) { return text + (item.version ? " " + item.version : "") }
+  if (fw) {
+    var parts = [withVersion(STACK_META[fw.id].icon, fw)]
+    if (lang) parts.push(withVersion(STACK_META[lang.id].icon, lang))
+    return parts.join("  \u00b7  ")
+  }
+  if (lang) return withVersion(STACK_META[lang.id].label, lang)
+  return ""
+}
+
+// Row icon: the framework's, else the language's, else the file-based type icon.
+function stackIcon(stack) {
+  var s = normalizeStack(stack)
+  if (s.framework) return STACK_META[s.framework.id].icon
+  if (s.language) return STACK_META[s.language.id].icon
+  return ""
+}
+
 // Configured tasks win over auto-detected ones with the same name.
 function mergeTasks(auto, configured) {
   var out = []
@@ -311,7 +373,7 @@ function mergeTasks(auto, configured) {
   return out
 }
 
-function buildProject(path, name, git, meta, config, godot, types, autoTasks) {
+function buildProject(path, name, git, meta, config, godot, types, autoTasks, stack) {
   var explicitEditor = meta && meta.editor && config.editors[meta.editor] ? meta.editor : ""
   var labelId = explicitEditor
   if (!labelId && godot && config.editors.godot) labelId = "godot"
@@ -325,6 +387,7 @@ function buildProject(path, name, git, meta, config, godot, types, autoTasks) {
     editorLabel: editor ? editor.label : labelId,
     godot: !!godot,
     types: Array.isArray(types) ? types.slice() : [],
+    stack: normalizeStack(stack),
     tags: meta && Array.isArray(meta.tags) ? meta.tags.slice() : [],
     tasks: mergeTasks(autoTasks, meta && meta.tasks),
     pinned: !!(meta && meta.pinned),
@@ -353,7 +416,7 @@ function mergeProjects(scanned, config, home) {
       used[alias] = true
     }
     used[key] = true
-    out.push(buildProject(s.path, s.name, s.git, meta, config, s.godot, s.types, s.tasks))
+    out.push(buildProject(s.path, s.name, s.git, meta, config, s.godot, s.types, s.tasks, s.stack))
   }
 
   // Configured projects the scan didn't return (discovery off, path missing,
@@ -532,8 +595,9 @@ function projectRow(project) {
     name: project.name,
     path: project.path,
     editorLabel: project.editorLabel,
-    icon: typeIcon(project.types),
+    icon: stackIcon(project.stack) || typeIcon(project.types),
     typeLabel: typeLabel(project.types),
+    stackText: stackText(project.stack),
     gitText: gitSummary(git),
     branch: git ? git.branch : "",
     dirty: !!(git && git.dirty),
@@ -882,6 +946,8 @@ if (typeof module !== "undefined") {
     escapeHtml: escapeHtml,
     typeIcon: typeIcon,
     typeLabel: typeLabel,
+    stackText: stackText,
+    stackIcon: stackIcon,
     primaryType: primaryType,
     commandAvailable: commandAvailable,
     availableEditors: availableEditors,

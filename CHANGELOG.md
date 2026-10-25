@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- Framework and language detection with versions on each project row; the row
+  icon follows the framework (or the language when there is none).
+
 ## 1.1.0 — prepared, not published
 
 ### Added

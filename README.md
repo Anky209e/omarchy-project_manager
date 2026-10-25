@@ -15,6 +15,14 @@ It has its own plugin ID and does not replace the built-in clipboard.
 - **Discovery** — recursively scans configured roots (default `~/Projects`) for
   git repositories and Godot projects (`project.godot`), plus any explicit
   entries from the config file.
+- **Framework & language versions** — each row shows the project's framework and
+  language with versions, e.g. `<NestJS icon> 12.2.0 · <TypeScript icon> 6.0.3`;
+  the row icon is the framework's (or the language's when there is no framework).
+  Detected from `package.json` dependencies (NestJS, Next.js, Nuxt, Astro, Angular,
+  Svelte/SvelteKit, Vue, React, Fastify, Express), Python (Django, FastAPI, Flask),
+  Rails, and Laravel; versions come from `node_modules` or the declared range,
+  `Cargo.toml`, `go.mod`, `.python-version`, `.ruby-version` and `composer.json`.
+  Projects without a framework show the language name and version (e.g. `Rust 1.78`).
 - **Project types** — each project is tagged by the files it contains (Node,
   Rust, Go, Python, Nix, CMake, Ruby, PHP, Make, Just, Godot) and shown with a
   matching icon/label.

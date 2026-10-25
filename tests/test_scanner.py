@@ -35,6 +35,28 @@ class ScannerTests(unittest.TestCase):
         self.assertIn('npm', result['availableCommands'])
         self.assertIn('npm', [t['requires'] for t in result['projects'][0]['tasks']])
 
+    def test_stack_reports_framework_and_language_versions(self):
+        project = self.root / 'api'
+        (project / 'node_modules' / '@nestjs' / 'core').mkdir(parents=True)
+        (project / 'node_modules' / '@nestjs' / 'core' / 'package.json').write_text('{"version":"10.3.0"}')
+        (project / 'package.json').write_text(
+            '{"dependencies":{"@nestjs/core":"^10.0.0"},"devDependencies":{"typescript":"~5.4.5"}}')
+        result = self.scan('--', project)
+        self.assertEqual(result['projects'][0]['stack'], {
+            'framework': {'id': 'nestjs', 'version': '10.3.0'},
+            'language': {'id': 'typescript', 'version': '5.4.5'},
+        })
+
+    def test_stack_falls_back_to_language_only_or_nothing(self):
+        rust = self.root / 'rs'
+        rust.mkdir()
+        (rust / 'Cargo.toml').write_text('[package]\nrust-version = "1.78"\n')
+        plain = self.root / 'plain'
+        plain.mkdir()
+        result = {p['name']: p['stack'] for p in self.scan('--', rust, plain)['projects']}
+        self.assertEqual(result['rs'], {'framework': None, 'language': {'id': 'rust', 'version': '1.78'}})
+        self.assertEqual(result['plain'], {'framework': None, 'language': None})
+
     def test_script_names_are_literal_arguments(self):
         capture = self.root / 'args.json'
         self.tool('npm', 'python3 -c \'import json,sys; json.dump(sys.argv[1:],open(sys.argv[1],"w"))\' "$CAPTURE" "$@"')
