@@ -48,6 +48,12 @@ Item {
     try { u = decodeURIComponent(u) } catch (e) {}
     return u
   }
+  readonly property string tmuxScriptPath: {
+    var u = Qt.resolvedUrl("tmux-session.sh").toString()
+    u = u.replace(/^file:\/\//, "")
+    try { u = decodeURIComponent(u) } catch (e) {}
+    return u
+  }
   property string configPath: root.home + "/.config/omarchy/project-manager.json"
   property string stateDir: root.home + "/.local/state/omarchy/project-manager"
   property string usagePath: root.stateDir + "/usage.json"
@@ -339,7 +345,9 @@ Item {
     root.opened = false
     root.mode = "list"
 
-    if (command.argv) Quickshell.execDetached(command.argv)
+    if (command.tmux) Quickshell.execDetached(["bash", root.tmuxScriptPath, command.tmux.name, command.tmux.path]
+      .concat(command.tmux.command ? [command.tmux.command] : []))
+    else if (command.argv) Quickshell.execDetached(command.argv)
     else if (command.shell) Quickshell.execDetached(["bash", "-lc", command.shell])
   }
 
@@ -697,6 +705,9 @@ Item {
             event.accepted = true
           } else if (event.key === Qt.Key_Y && (event.modifiers & Qt.ControlModifier)) {
             root.runActionOfKind("copy")
+            event.accepted = true
+          } else if (event.key === Qt.Key_T && (event.modifiers & Qt.ControlModifier)) {
+            root.runActionOfKind("terminal-tmux")
             event.accepted = true
           } else if (event.key === Qt.Key_E && (event.modifiers & Qt.ControlModifier)) {
             root.cycleEditor()
@@ -1173,7 +1184,7 @@ Item {
               s += "  ·  Ctrl P pin  ·  Ctrl E editor  ·  \u2190 project list  ·  Esc close"
               return s
             }
-            return "type to search  ·  \u2191\u2193 move  ·  Enter open  ·  \u21e7Enter terminal  ·  \u2325Enter files  ·  \u2192 actions  ·  Ctrl P pin  ·  Ctrl E editor  ·  Ctrl O output"
+            return "type to search  ·  \u2191\u2193 move  ·  Enter open  ·  \u21e7Enter terminal  ·  Ctrl T tmux  ·  \u2325Enter files  ·  \u2192 actions  ·  Ctrl P pin  ·  Ctrl E editor  ·  Ctrl O output"
           }
           color: root.foreground
           opacity: 0.45

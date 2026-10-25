@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- "Open in tmux session" action (`Ctrl+T`): opens a terminal attached to a tmux
+  session named after the project folder, creating it if needed, or focuses the
+  terminal that already shows that session (Hyprland). The optional
+  `tmuxStartCommand` setting types a command (such as a layout alias) into a
+  newly created session. Disabled with a
+  "Missing: tmux" explanation when tmux is not installed.
+
 ## 1.1.0 — prepared, not published
 
 ### Added

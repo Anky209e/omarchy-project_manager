@@ -142,3 +142,28 @@ test('browser links discard remote credentials, query strings and fragments', ()
     assert.ok(!JSON.stringify(parsed).includes('secret'))
   }
 })
+
+test('tmux action opens a per-project session and needs tmux', () => {
+  const project = {path: '/home/test/Projects/my.app', name: 'my.app'}
+  const config = Store.normalizeConfig({}, '/home/test')
+  const withTmux = Store.actionsFor(project, config, ['setsid', 'uwsm-app', 'xdg-terminal-exec', 'tmux'])
+  const action = withTmux.find(a => a.id === 'terminal-tmux')
+  assert.equal(action.enabled, true)
+  assert.equal(action.group, 'Open')
+  assert.deepEqual(Store.commandFor(action, project, config).tmux,
+    {name: 'my_app', path: '/home/test/Projects/my.app', command: ''})
+  const withLayout = Store.normalizeConfig({tmuxStartCommand: '  ix  '}, '/home/test')
+  assert.equal(Store.commandFor(action, project, withLayout).tmux.command, 'ix')
+  assert.equal(Store.normalizeConfig({tmuxStartCommand: 42}, '/home/test').tmuxStartCommand, '')
+
+  const withoutTmux = Store.actionsFor(project, config, ['setsid', 'uwsm-app', 'xdg-terminal-exec'])
+  const disabled = withoutTmux.find(a => a.id === 'terminal-tmux')
+  assert.equal(disabled.enabled, false)
+  assert.equal(disabled.disabledReason, 'Missing: tmux')
+})
+
+test('tmux session names avoid characters tmux rejects', () => {
+  assert.equal(Store.tmuxSessionName('/a/b/my.app'), 'my_app')
+  assert.equal(Store.tmuxSessionName('/a/b/x:y/'), 'x_y')
+  assert.equal(Store.tmuxSessionName(''), 'project')
+})

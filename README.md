@@ -34,6 +34,10 @@ It has its own plugin ID and does not replace the built-in clipboard.
   top. Pins and editor choices survive shell restarts without rewriting config.
 - **Godot projects** — anything with a `project.godot` opens in the Godot editor
   automatically (when `godot` is installed), unless you set an editor for it.
+- **tmux** — `Ctrl+T` opens the project in a tmux session named after its
+  folder. If a terminal already shows that session it is focused (Hyprland);
+  otherwise a new terminal attaches, creating the session first when needed
+  (enabled when `tmux` is installed).
 - **Terminal & files** — open a terminal in the project dir (`Shift+Enter`) or
   the file manager (`Alt+Enter`).
 - **Git at a glance** — branch, dirty marker, ahead/behind counts in the list and
@@ -120,6 +124,8 @@ Removal deletes the plugin folder only. Your config
 - For GUI and terminal actions: `uwsm-app`, `xdg-open`, `xdg-terminal-exec`,
   `omarchy-launch-editor`, and `omarchy-launch-browser`.
 - Optional: `wl-copy` for clipboard actions; `lazygit` for its Git action;
+  `tmux` for the "Open in tmux session" action (plus `hyprctl` and `jq` to focus a
+  terminal that already shows the session);
   your chosen editors and task tools (npm, Cargo, Make, Just, and others).
   Actions explain which tools are missing.
 
@@ -196,6 +202,7 @@ and compositor focus still need an interactive check.
 | `Left` / `Shift+Tab` | Back to the project list |
 | `Enter` | Open the highlighted action (default: editor) |
 | `Shift+Enter` | Open a terminal in the project |
+| `Ctrl+T` | Open the project in a tmux session (create it, or go to the terminal already showing it) |
 | `Alt+Enter` | Open the file manager |
 | `Ctrl+E` | Cycle and remember the editor for the current project |
 | `Ctrl+P` | Pin or unpin the current project |
@@ -267,6 +274,9 @@ watched — saving it reloads live. Frecency state is kept separately in
 - **`scale`** — UI scale for the overlay. `0` (default) auto-scales by logical
   screen height so it stays comfortable on 1440p/4K displays (`1080p` → `1.0`,
   `1440p` → `1.33`, capped at `1.6`); set a number to force a fixed multiplier.
+- **`tmuxStartCommand`** — optional text typed into the first pane when `Ctrl+T`
+  *creates* a session (never for an existing one), e.g. a shell alias that builds
+  your pane layout: `"tmuxStartCommand": "my-layout"`. Empty by default.
 - **`taskMode`** — `"managed"` (default) captures output in the overlay and offers
   Stop and Rerun. `"terminal"` opens an interactive terminal; `"background"`
   launches detached. Legacy `tasksInTerminal: true/false` maps to terminal/background

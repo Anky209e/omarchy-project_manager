@@ -157,6 +157,7 @@ function normalizeConfig(raw, home) {
     defaultEditor: base.defaultEditor,
     scale: 0,
     tasksInTerminal: parsed.tasksInTerminal === undefined ? base.tasksInTerminal : !!parsed.tasksInTerminal,
+    tmuxStartCommand: typeof parsed.tmuxStartCommand === "string" ? parsed.tmuxStartCommand.trim() : "",
     taskMode: ["managed", "terminal", "background"].indexOf(parsed.taskMode) >= 0
       ? parsed.taskMode : (parsed.tasksInTerminal === undefined ? "managed"
         : (parsed.tasksInTerminal ? "terminal" : "background")),
@@ -596,6 +597,14 @@ function actionsFor(project, config, available, effectiveEditorId) {
   })
 
   actions.push({
+    id: "terminal-tmux",
+    kind: "terminal-tmux",
+    label: "Open in tmux session",
+    hint: "Ctrl T",
+    enabled: commandAvailable("tmux", available) && commandAvailable("xdg-terminal-exec", available)
+  })
+
+  actions.push({
     id: "files",
     kind: "files",
     label: "Open file manager",
@@ -665,6 +674,7 @@ function actionsFor(project, config, available, effectiveEditorId) {
       if (editor.kind !== "direct") required.push("setsid", "uwsm-app")
       if (editor.kind === "terminal") required.push("xdg-terminal-exec")
     } else if (action.kind === "terminal") required = ["setsid", "uwsm-app", "xdg-terminal-exec"]
+    else if (action.kind === "terminal-tmux") required = ["setsid", "uwsm-app", "xdg-terminal-exec", "tmux"]
     else if (action.kind === "files") required = ["setsid", "uwsm-app", "xdg-open"]
     else if (action.kind === "github") required = ["setsid", "uwsm-app", "omarchy-launch-browser"]
     else if (action.kind === "terminal-cmd") required = ["setsid", "uwsm-app", "xdg-terminal-exec", "lazygit"]
@@ -712,6 +722,12 @@ function commandFor(action, project, config) {
   if (action.kind === "terminal")
     return { argv: ["setsid", "uwsm-app", "--", "xdg-terminal-exec", "--dir=" + path] }
 
+  // Open the project's tmux session: tmux-session.sh creates it if needed and
+  // focuses the terminal that already shows it, or opens a new one.
+  if (action.kind === "terminal-tmux")
+    return { tmux: { name: tmuxSessionName(path), path: path,
+      command: (config && config.tmuxStartCommand) || "" } }
+
   if (action.kind === "files")
     return { argv: ["setsid", "uwsm-app", "--", "xdg-open", path] }
 
@@ -739,6 +755,12 @@ function commandFor(action, project, config) {
   }
 
   return null
+}
+
+// tmux session names cannot contain "." or ":"; derive one from the directory name.
+function tmuxSessionName(path) {
+  var base = String(path || "").replace(/\/+$/, "").split("/").pop()
+  return (base || "project").replace(/[.:]/g, "_")
 }
 
 // Launch `command` in a terminal rooted at `dir`, keeping the window open so
@@ -888,6 +910,7 @@ if (typeof module !== "undefined") {
     actionsFor: actionsFor,
     commandFor: commandFor,
     terminalArgv: terminalArgv,
+    tmuxSessionName: tmuxSessionName,
     defaultRoot: defaultRoot,
     sanitizeProjectName: sanitizeProjectName,
     cloneCommand: cloneCommand,
