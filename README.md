@@ -33,9 +33,10 @@ It has its own plugin ID and does not replace the built-in clipboard.
 - **Resume** — reopen the most recently used project in its saved editor with
   `Ctrl+U` or an optional global shortcut.
 - **Workspaces** — open a project's saved editor and start its configured tasks
-  together with `Ctrl+W`.
+  together with `Ctrl+W`. On first use, choose the startup tasks in the overlay.
 - **Project groups** — create a named group or move the highlighted project into
-  one with `Ctrl+M`. Groups appear above ungrouped projects and can be searched by name.
+  one with `Ctrl+M`. Pick an existing group from the list or type a new name.
+  Groups appear above ungrouped projects and can be searched by name.
 - **Pin projects** — click the pin or press `Ctrl+P` to keep a project at the
   top. Pins and editor choices survive shell restarts without rewriting config.
 - **Godot projects** — anything with a `project.godot` opens in the Godot editor
@@ -213,7 +214,8 @@ and compositor focus still need an interactive check.
 | `Ctrl+E` | Cycle and remember the editor for the current project |
 | `Ctrl+P` | Pin or unpin the current project |
 | `Ctrl+U` | Resume the most recently used project in its saved editor |
-| `Ctrl+W` | Open the current project's workspace |
+| `Ctrl+W` | Open the workspace or choose its startup tasks on first use |
+| `Ctrl+Shift+W` | Configure the current project's workspace |
 | `Ctrl+M` | Add the current project to a new or existing group |
 | `Ctrl+O` | Show the latest task output (again to return) |
 | `Ctrl+X` | Stop the managed task while viewing output |
@@ -294,8 +296,10 @@ watched — saving it reloads live. Frecency state is kept separately in
   sort alphabetically above ungrouped projects, with pins first within each
   section. A project belongs to one group. Configured projects can set a default
   `group`, which the saved membership overrides.
-- **Workspaces** — `workspace.tasks` lists exact names from the project's
-  configured or auto-detected tasks. **Open workspace** launches the current
+- **Workspaces** — use **Configure workspace** to select startup tasks and save
+  them in project preferences. Clear every selection to disable the workspace.
+  In JSON, `workspace.tasks` can set defaults using exact configured or
+  auto-detected task names. **Open workspace** launches the current
   editor and starts each listed task in its own terminal in the project
   directory. The overlay checks that the editor and task tools are available
   before launching. Workspace terminals run independently of the managed task console.

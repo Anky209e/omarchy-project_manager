@@ -125,6 +125,12 @@ function groupName(value) {
   return typeof value === "string" ? value.trim().replace(/\s+/g, " ").slice(0, 60) : ""
 }
 
+function workspaceTasks(value) {
+  return value.filter(function (name, index, names) {
+    return typeof name === "string" && name.length > 0 && names.indexOf(name) === index
+  })
+}
+
 function normalizeProjects(list, home) {
   if (!Array.isArray(list)) return []
   var out = []
@@ -140,8 +146,7 @@ function normalizeProjects(list, home) {
       tasks: normalizeTasks(p.tasks),
       group: groupName(p.group),
       workspace: isObject(p.workspace) && Array.isArray(p.workspace.tasks)
-        ? {tasks: p.workspace.tasks.filter(function (name) { return typeof name === "string" && name.length > 0 })
-          .filter(function (name, index, names) { return names.indexOf(name) === index })} : null,
+        ? {tasks: workspaceTasks(p.workspace.tasks)} : null,
       pinned: !!p.pinned
     })
   }
@@ -486,6 +491,19 @@ function groupProjects(projects) {
   return rows
 }
 
+function matchingGroups(projects, query) {
+  var names = Object.create(null)
+  var needle = groupName(query).toLowerCase()
+  projects.forEach(function (project) {
+    var name = project.group
+    if (!name) return
+    var key = name.toLowerCase()
+    if (key.indexOf(needle) !== -1 && !names[key]) names[key] = name
+  })
+  return Object.keys(names).sort(function (a, b) { return a.localeCompare(b) })
+    .map(function (key) { return names[key] })
+}
+
 function preferredGroup(value, projects) {
   var name = groupName(value)
   for (var i = 0; i < projects.length; i++) {
@@ -747,11 +765,17 @@ function actionsFor(project, config, available, effectiveEditorId) {
     if (action.kind === "cycle-editor" && !action.enabled) action.disabledReason = "No installed editors found"
     if (action.disabledReason) action.enabled = false
   }
-  if (project.workspace) {
+  if (project.workspace && project.workspace.tasks.length) {
     var workspace = workspacePlan(project, config, available, actions[0])
     actions.splice(1, 0, {id: "workspace", kind: "workspace", group: "Open",
       label: "Open workspace", hint: "Ctrl W", commands: workspace.commands,
       disabledReason: workspace.error, enabled: !workspace.error})
+  }
+  if ((project.tasks || []).length || project.workspace) {
+    actions.splice(project.workspace && project.workspace.tasks.length ? 2 : 1, 0,
+      {id: "configure-workspace", kind: "workspace-setup", group: "Open",
+        label: "Configure workspace", hint: project.workspace && project.workspace.tasks.length ? "" : "Ctrl W",
+        enabled: true})
   }
   // Keep the editor first within Open and preserve task shortcut numbering.
   return actions.map(function (action, index) { return {action: action, index: index} })
@@ -887,6 +911,7 @@ function parsePreferences(raw) {
       if (typeof entry.pinned === "boolean") clean.pinned = entry.pinned
       if (typeof entry.editor === "string") clean.editor = entry.editor
       if (typeof entry.group === "string") clean.group = groupName(entry.group)
+      if (Array.isArray(entry.workspaceTasks)) clean.workspaceTasks = workspaceTasks(entry.workspaceTasks)
       projects[pathKey(path)] = clean
     }
     return {version: 1, projects: projects}
@@ -901,6 +926,7 @@ function updatePreference(preferences, path, field, value) {
   if (field === "pinned" && typeof value === "boolean") entry.pinned = value
   if (field === "editor" && typeof value === "string") entry.editor = value
   if (field === "group" && typeof value === "string") entry.group = groupName(value)
+  if (field === "workspaceTasks" && Array.isArray(value)) entry.workspaceTasks = workspaceTasks(value)
   out.projects[key] = entry
   return out
 }
@@ -913,6 +939,7 @@ function applyPreferences(projects, preferences, config, available) {
     var saved = prefs[pathKey(p.path)] || {}
     if (typeof saved.pinned === "boolean") p.pinned = saved.pinned
     if (typeof saved.group === "string") p.group = saved.group
+    if (Array.isArray(saved.workspaceTasks)) p.workspace = {tasks: saved.workspaceTasks}
     if (saved.editor && config.editors[saved.editor]) p.editor = saved.editor
     var id = p.editor
     if (!id && p.godot && config.editors.godot
@@ -953,6 +980,7 @@ if (typeof module !== "undefined") {
   module.exports = {
     groupProjects: groupProjects,
     preferredGroup: preferredGroup,
+    matchingGroups: matchingGroups,
     lastUsedProject: lastUsedProject,
     parsePreferences: parsePreferences,
     updatePreference: updatePreference,

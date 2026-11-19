@@ -35,6 +35,31 @@ Item {
   property string promptText: ""
   property string promptKind: ""
   property string promptProjectPath: ""
+  property int promptIndex: -1
+  property var workspaceSelection: []
+  readonly property var promptOptions: {
+    if (root.promptKind === "project-group") {
+      return Store.matchingGroups(root.projects, root.promptText).map(function (name) {
+        return {group: "Existing groups", label: name, value: name}
+      })
+    }
+    if (root.promptKind === "workspace-setup") {
+      var project = root.projects.find(function (entry) { return entry.path === root.promptProjectPath })
+      if (!project) return []
+      var names = project.tasks.filter(function (task) { return !!task.command })
+        .map(function (task) { return task.name })
+      root.workspaceSelection.forEach(function (name) {
+        if (names.indexOf(name) === -1) names.push(name)
+      })
+      var options = names.map(function (name) {
+        var selected = root.workspaceSelection.indexOf(name) !== -1
+        return {group: "Startup tasks", value: name, label: (selected ? "✓  " : "○  ") + name}
+      })
+      options.push({group: "Workspace", label: "Save workspace", save: true})
+      return options
+    }
+    return []
+  }
 
   property var config: Store.defaultConfig()
   property var scanned: []
@@ -377,6 +402,12 @@ Item {
       return
     }
     if (action.id === "clear-group") { root.savePreference(project.path, "group", ""); return }
+    if (action.kind === "workspace-setup") {
+      root.promptProjectPath = project.path
+      root.workspaceSelection = project.workspace ? project.workspace.tasks.slice() : []
+      root.openPrompt("workspace-setup", "Configure workspace")
+      return
+    }
     if (action.kind === "workspace") { root.launchProject(project, action.commands); return }
     var command = Store.commandFor(action, project, root.config)
     if (!command) return
@@ -416,7 +447,12 @@ Item {
     root.promptTitle = title
     root.promptText = ""
     promptInput.text = ""
-    Qt.callLater(function () { if (root.mode === "prompt") promptInput.forceActiveFocus() })
+    root.promptIndex = kind === "workspace-setup" ? 0 : -1
+    Qt.callLater(function () {
+      if (root.mode !== "prompt") return
+      if (root.promptKind === "workspace-setup") keyCatcher.forceActiveFocus()
+      else promptInput.forceActiveFocus()
+    })
   }
 
   function closePrompt() {
@@ -428,9 +464,39 @@ Item {
     keyCatcher.forceActiveFocus()
   }
 
+  function movePromptSelection(delta) {
+    if (!root.promptOptions.length) return
+    var first = root.promptKind === "workspace-setup" ? 0 : -1
+    root.promptIndex = Math.max(first, Math.min(root.promptOptions.length - 1, root.promptIndex + delta))
+    if (root.promptIndex >= 0) promptChoices.positionViewAtIndex(root.promptIndex, ListView.Contain)
+  }
+
+  function selectPromptOption(index) {
+    var option = root.promptOptions[index]
+    if (!option) return
+    if (root.promptKind === "project-group") {
+      root.promptIndex = index
+      root.acceptPrompt()
+    } else if (option.save) {
+      root.savePreference(root.promptProjectPath, "workspaceTasks", root.workspaceSelection)
+      root.closePrompt()
+    } else {
+      var next = root.workspaceSelection.slice()
+      var current = next.indexOf(option.value)
+      if (current < 0) next.push(option.value)
+      else next.splice(current, 1)
+      root.workspaceSelection = next
+      Qt.callLater(function () {
+        if (root.promptKind === "workspace-setup" && root.promptIndex >= 0)
+          promptChoices.positionViewAtIndex(root.promptIndex, ListView.Contain)
+      })
+    }
+  }
+
   function acceptPrompt() {
     var kind = root.promptKind
-    var value = root.promptText.trim()
+    var selected = root.promptOptions[root.promptIndex]
+    var value = kind === "project-group" && selected ? selected.value : root.promptText.trim()
     var path = root.promptProjectPath
     root.closePrompt()
     if (!value) return
@@ -476,7 +542,11 @@ Item {
       else if (showReason) root.statusText = action.disabledReason
       return
     }
-    if (showReason && id === "workspace") root.statusText = "No workspace configured for this project"
+    if (id === "workspace" && showReason) {
+      var setup = root.actions.find(function (action) { return action.id === "configure-workspace" })
+      if (setup) root.runAction(setup)
+      else root.statusText = "No tasks detected for this project"
+    }
   }
 
   function runTaskByIndex(n) {
@@ -686,7 +756,18 @@ Item {
           var altMod = event.modifiers & Qt.AltModifier
           var metaMod = event.modifiers & Qt.MetaModifier
 
-          if (root.mode === "prompt") return
+          if (root.mode === "prompt") {
+            if (root.promptKind !== "workspace-setup") return
+            if (event.key === Qt.Key_Escape) root.closePrompt()
+            else if (ctrlMod && event.key === Qt.Key_S) root.selectPromptOption(root.promptOptions.length - 1)
+            else if (event.key === Qt.Key_Up) root.movePromptSelection(-1)
+            else if (event.key === Qt.Key_Down) root.movePromptSelection(1)
+            else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter || event.key === Qt.Key_Space)
+              root.selectPromptOption(root.promptIndex)
+            else return
+            event.accepted = true
+            return
+          }
 
           if (root.mode === "output") {
             if (event.key === Qt.Key_Escape || (ctrlMod && event.key === Qt.Key_O)) {
@@ -706,7 +787,8 @@ Item {
             return
           }
           if (ctrlMod && event.key === Qt.Key_W) {
-            root.runActionById("workspace", true)
+            if (event.modifiers & Qt.ShiftModifier) root.runActionById("configure-workspace")
+            else root.runActionById("workspace", true)
             event.accepted = true
             return
           }
@@ -1251,6 +1333,7 @@ Item {
 
                   Rectangle {
                     id: promptBox
+                    visible: root.promptKind !== "workspace-setup"
                     anchors.left: parent.left
                     anchors.right: parent.right
                     anchors.top: parent.top
@@ -1276,23 +1359,56 @@ Item {
                       font.family: root.fontFamily
                       font.pixelSize: root.fBody
                       Accessible.name: root.promptTitle
-                      onTextChanged: root.promptText = text
+                      onTextChanged: {
+                        root.promptText = text
+                        root.promptIndex = -1
+                      }
+                      Keys.onDownPressed: function (event) {
+                        if (root.promptKind !== "project-group") { event.accepted = false; return }
+                        root.movePromptSelection(1)
+                      }
+                      Keys.onUpPressed: function (event) {
+                        if (root.promptKind !== "project-group") { event.accepted = false; return }
+                        root.movePromptSelection(-1)
+                      }
                       onAccepted: root.acceptPrompt()
                       Keys.onEscapePressed: root.closePrompt()
                     }
                   }
                   Text {
+                    id: groupHelp
                     anchors.top: promptBox.bottom
                     anchors.topMargin: root.sSm
                     width: parent.width
                     visible: root.promptKind === "project-group"
-                    text: "Enter a new or existing group name."
+                    text: "Type a new group or choose an existing one."
                     textFormat: Text.PlainText
                     color: root.foreground
                     font.family: root.fontFamily
                     font.pixelSize: root.fCaption
                     wrapMode: Text.WordWrap
                   }
+                  ActionMenu {
+                    id: promptChoices
+                    anchors.top: root.promptKind === "workspace-setup" ? parent.top : groupHelp.bottom
+                    anchors.topMargin: root.sSm
+                    anchors.bottom: parent.bottom
+                    width: parent.width
+                    visible: root.promptOptions.length > 0
+                    actions: root.promptOptions
+                    selectedIndex: root.promptIndex
+                    keyboardActive: true
+                    foreground: root.foreground; accent: root.accent
+                    selectedBackground: root.selectedBackground; selectedText: root.selectedText
+                    selectionBorder: root.selectionBorder; hoverBackground: root.surface
+                    fontFamily: root.fontFamily
+                    bodySize: root.fBody; captionSize: root.fCaption
+                    rowHeight: root.actionRowHeight; padding: root.sp(10)
+                    cornerRadius: root.cornerRadius
+                    onSelectionRequested: function (index) { root.promptIndex = index }
+                    onActionRequested: function (index) { root.selectPromptOption(index) }
+                  }
+
                 }
               }
             }
@@ -1307,7 +1423,12 @@ Item {
           height: root.footerHeight
           verticalAlignment: Text.AlignVCenter
           text: {
-            if (root.mode === "prompt") return "Enter confirm  ·  Esc cancel"
+            if (root.mode === "prompt") {
+              if (root.promptKind === "workspace-setup") return "↑↓ move  ·  Enter select  ·  Ctrl S save  ·  Esc cancel"
+              if (root.promptKind === "project-group" && root.promptOptions.length)
+                return "↑↓ choose group  ·  Enter confirm  ·  Esc cancel"
+              return "Enter confirm  ·  Esc cancel"
+            }
             if (root.mode === "output") return "Ctrl X stop task  ·  Ctrl Enter rerun  ·  Esc back to projects · Tasks keep running when closed"
             if (root.focusArea === "actions") {
               var s = "\u2191\u2193 move  ·  Enter run"

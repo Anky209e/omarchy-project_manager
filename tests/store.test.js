@@ -180,6 +180,8 @@ test('project groups precede ungrouped pins and keep ranking within each group',
   assert.equal(grouped[0].section, grouped[1].section)
   assert.deepEqual(Store.filterProjects(projects, 'work').map(p => p.name), ['Client', 'Server'])
   assert.equal(Store.preferredGroup(' WORK ', projects).toLowerCase(), 'work')
+  assert.equal(Store.matchingGroups(projects, 'OR').length, 1)
+  assert.equal(Store.matchingGroups(projects, 'next').length, 0)
   const cleared = Store.updatePreference(prefs, '/tmp/server', 'group', '')
   assert.equal(Store.applyPreferences(projects, cleared, config, []).find(p => p.name === 'Server').group, '')
 })
@@ -211,4 +213,14 @@ test('workspace launches the saved editor and the named tasks in separate termin
   assert.match(workspace(available, 'nvim').disabledReason, /nvim/)
   project.tasks.pop()
   assert.match(workspace(available).disabledReason, /Missing workspace task: test/)
+})
+
+test('workspace task selections persist and can override configured defaults', () => {
+  const config = Store.normalizeConfig({projects: [{path: '/tmp/project', workspace: {tasks: ['Build']}}]}, '')
+  const projects = Store.mergeProjects([], config)
+  const prefs = Store.updatePreference({}, '/tmp/project', 'workspaceTasks', ['Test', 'Test', 4])
+  const reopened = Store.parsePreferences(JSON.stringify(prefs))
+  assert.deepEqual(Store.applyPreferences(projects, reopened, config, [])[0].workspace.tasks, ['Test'])
+  const cleared = Store.updatePreference(reopened, '/tmp/project', 'workspaceTasks', [])
+  assert.deepEqual(Store.applyPreferences(projects, cleared, config, [])[0].workspace.tasks, [])
 })

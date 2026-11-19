@@ -61,7 +61,7 @@ ShellRoot {
         switch (harness.stage) {
         case 0:
           if (!overlay.preferencesLoaded || !overlay.scannedOnce) return
-          overlay.open("{}")
+          overlay.open('{"filter":"Smoke project"}')
           harness.require(overlay.currentProject !== null, "No project discovered")
           overlay.togglePin()
           overlay.cycleEditor()
@@ -152,9 +152,25 @@ ShellRoot {
           harness.require(harness.restored.promptText === " name", "Prompt editing did not update the value")
           harness.restored.closePrompt()
           harness.require(harness.restored.mode === "list", "Prompt did not return to projects")
+          harness.restored.setFilter("Second project")
+          harness.restored.runActionById("set-group")
+          harness.require(harness.restored.promptOptions.length === 1
+            && harness.restored.promptOptions[0].label === "Workbench", "Existing group missing")
+          harness.restored.movePromptSelection(1)
+          harness.restored.acceptPrompt()
+          harness.require(harness.restored.currentProject.group === "Workbench", "Existing group was not assigned")
           harness.restored.setFilter("workbench")
-          harness.require(harness.restored.currentProject.group === "Workbench", "Group search failed")
+          harness.require(harness.restored.displayProjects.length === 2, "Group search failed")
+          harness.restored.setFilter("Smoke project")
           harness.restored.savePreference(harness.restored.currentProject.path, "editor", "smoke")
+          harness.restored.runActionById("workspace", true)
+          harness.require(harness.restored.promptKind === "workspace-setup", "Workspace setup did not open")
+          var choices = harness.restored.promptOptions
+          harness.restored.selectPromptOption(choices.findIndex(option => option.value === "Start"))
+          harness.restored.selectPromptOption(choices.findIndex(option => option.value === "Test"))
+          harness.restored.selectPromptOption(choices.findIndex(option => option.save))
+          harness.require(harness.restored.currentProject.workspace.tasks.join(",") === "Start,Test",
+            "Workspace tasks were not saved")
           harness.restored.runActionById("workspace")
           harness.require(!harness.restored.opened, "Workspace did not dismiss the overlay")
           harness.stage = 10

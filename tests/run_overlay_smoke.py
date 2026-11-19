@@ -58,10 +58,11 @@ def main():
             'taskMode': 'managed', 'discovery': {'enabled': False},
             'editors': {'smoke': {'label': 'Smoke editor', 'command': 'smoke-editor', 'kind': 'direct'}},
             'projects': [{'path': str(project), 'name': 'Smoke project', 'tags': ['qml', 'demo'],
-                          'workspace': {'tasks': ['Start', 'Test']}, 'tasks': {
+                          'tasks': {
                               'Check': 'echo hello',
                               'Start': 'echo workspace-start >> "$HOME/launches"',
-                              'Test': 'echo workspace-test >> "$HOME/launches"'}}]}))
+                              'Test': 'echo workspace-test >> "$HOME/launches"'}},
+                         {'path': str(project.parent / 'second'), 'name': 'Second project'}]}))
         (project / 'package.json').write_text('{"scripts":{"test":"true"}}')
         runtime = directory / 'runtime'
         runtime.mkdir(mode=0o700)
