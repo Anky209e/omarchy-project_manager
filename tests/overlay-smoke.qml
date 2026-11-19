@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Window
 import Quickshell
+import Quickshell.Io
 import "plugin" as Plugin
 
 ShellRoot {
@@ -10,6 +11,14 @@ ShellRoot {
   property string chosenEditor: ""
   property var restored: null
   property var runner: null
+  property var resumed: null
+
+  FileView {
+    id: launchLog
+    path: Quickshell.env("HOME") + "/launches"
+    watchChanges: true
+    onFileChanged: reload()
+  }
   property bool waitingForCapture: false
 
   function require(condition, message) {
@@ -58,6 +67,10 @@ ShellRoot {
           overlay.cycleEditor()
           harness.chosenEditor = overlay.currentProject.editorId
           harness.require(overlay.currentProject.pinned, "Pin did not update")
+          overlay.runActionById("set-group")
+          harness.find(overlay, "promptInput").insert(0, "Workbench")
+          overlay.acceptPrompt()
+          harness.require(overlay.currentProject.group === "Workbench", "Group did not update")
           harness.stage = 1
           return
         case 1:
@@ -70,6 +83,7 @@ ShellRoot {
           if (!harness.restored.preferencesLoaded || !harness.restored.scannedOnce) return
           harness.restored.open("{}")
           harness.require(harness.restored.currentProject.pinned, "Pin did not persist")
+          harness.require(harness.restored.currentProject.group === "Workbench", "Group did not persist")
           harness.require(harness.restored.currentProject.editorId === harness.chosenEditor, "Editor did not persist")
           harness.runner = harness.find(harness.restored, "taskRunner")
           harness.require(harness.runner !== null, "Task runner missing")
@@ -138,10 +152,29 @@ ShellRoot {
           harness.require(harness.restored.promptText === " name", "Prompt editing did not update the value")
           harness.restored.closePrompt()
           harness.require(harness.restored.mode === "list", "Prompt did not return to projects")
-          console.log("SMOKE PASS: overlay creation, preferences restart, output, rerun, cancellation, empty prompt")
-          Qt.quit()
+          harness.restored.setFilter("workbench")
+          harness.require(harness.restored.currentProject.group === "Workbench", "Group search failed")
+          harness.restored.savePreference(harness.restored.currentProject.path, "editor", "smoke")
+          harness.restored.runActionById("workspace")
+          harness.require(!harness.restored.opened, "Workspace did not dismiss the overlay")
+          harness.stage = 10
           return
         }
+        case 10: {
+          var log = launchLog.text()
+          if (!log.includes("editor:") || !log.includes("workspace-start") || !log.includes("workspace-test")) return
+          harness.resumed = instance.createObject(window.contentItem)
+          harness.resumed.open('{"resume":true}')
+          harness.require(!harness.resumed.opened, "Resume showed the overlay")
+          harness.stage = 11
+          return
+        }
+        case 11:
+          if (launchLog.text().split("editor:").length !== 3) return
+          harness.require(!harness.resumed.opened, "Resume did not open the saved editor directly")
+          console.log("SMOKE PASS: preferences, groups, prompts, managed tasks, workspace launch and resume")
+          Qt.quit()
+          return
         }
       } catch (error) {
         console.log("SMOKE FAIL: " + error)

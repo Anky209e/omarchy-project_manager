@@ -30,6 +30,12 @@ It has its own plugin ID and does not replace the built-in clipboard.
 - **Many editors** — VS Code, Zed, Cursor, Neovim (opens in a terminal), and
   Godot built in; add your own. Unavailable editors are shown greyed out, and
   `Ctrl+E` cycles the editor for the current project and remembers your choice.
+- **Resume** — reopen the most recently used project in its saved editor with
+  `Ctrl+U` or an optional global shortcut.
+- **Workspaces** — open a project's saved editor and start its configured tasks
+  together with `Ctrl+W`.
+- **Project groups** — create a named group or move the highlighted project into
+  one with `Ctrl+M`. Groups appear above ungrouped projects and can be searched by name.
 - **Pin projects** — click the pin or press `Ctrl+P` to keep a project at the
   top. Pins and editor choices survive shell restarts without rewriting config.
 - **Godot projects** — anything with a `project.godot` opens in the Godot editor
@@ -86,6 +92,12 @@ to `~/.config/hypr/bindings.lua`:
 
 ```lua
 o.bind("SUPER + ALT + P", "Project manager", "omarchy-shell shell toggle io.github.anky209e.project-manager")
+```
+
+For a global Resume shortcut, add this optional binding:
+
+```lua
+o.bind("SUPER + ALT + R", "Resume project", [[omarchy-shell shell summon io.github.anky209e.project-manager '{"resume":true}']])
 ```
 
 Then reload Hyprland (`hyprctl reload`). The same `toggle` command can be bound
@@ -182,7 +194,8 @@ The smoke test isolates HOME and configuration, substitutes the Wayland window
 host for headless rendering, and runs the production controller, file I/O,
 scanner, and task runner. It checks preferences across new instances, stdout /
 stderr, failure status, rerun, cancellation, and prompts with no search results.
-It does not change your desktop or launch editors. Native layer-shell placement
+It also checks group persistence, workspace launch, and resume using stub editors
+and terminal launchers. Native layer-shell placement
 and compositor focus still need an interactive check.
 
 ## Keybindings
@@ -199,6 +212,9 @@ and compositor focus still need an interactive check.
 | `Alt+Enter` | Open the file manager |
 | `Ctrl+E` | Cycle and remember the editor for the current project |
 | `Ctrl+P` | Pin or unpin the current project |
+| `Ctrl+U` | Resume the most recently used project in its saved editor |
+| `Ctrl+W` | Open the current project's workspace |
+| `Ctrl+M` | Add the current project to a new or existing group |
 | `Ctrl+O` | Show the latest task output (again to return) |
 | `Ctrl+X` | Stop the managed task while viewing output |
 | `Ctrl+Enter` | Rerun the last task while viewing output |
@@ -245,6 +261,8 @@ watched — saving it reloads live. Frecency state is kept separately in
       "editor": "nvim",
       "tags": ["omarchy", "qml"],
       "pinned": true,
+      "group": "Workbench",
+      "workspace": { "tasks": ["Validate", "Git status"] },
       "tasks": {
         "Validate": "omarchy plugin validate .",
         "Git status": "git status"
@@ -271,7 +289,17 @@ watched — saving it reloads live. Frecency state is kept separately in
   Stop and Rerun. `"terminal"` opens an interactive terminal; `"background"`
   launches detached. Legacy `tasksInTerminal: true/false` maps to terminal/background
   unless `taskMode` is set explicitly. Editors and lazygit still open externally.
-- **Saved preferences** — pins and editor choices live in
+- **Project groups** — type an existing group name or create one with `Ctrl+M`.
+  Use **Remove from group** in the Project actions to clear membership. Groups
+  sort alphabetically above ungrouped projects, with pins first within each
+  section. A project belongs to one group. Configured projects can set a default
+  `group`, which the saved membership overrides.
+- **Workspaces** — `workspace.tasks` lists exact names from the project's
+  configured or auto-detected tasks. **Open workspace** launches the current
+  editor and starts each listed task in its own terminal in the project
+  directory. The overlay checks that the editor and task tools are available
+  before launching. Workspace terminals run independently of the managed task console.
+- **Saved preferences** — pins, editor choices, and project group membership live in
   `~/.local/state/omarchy/project-manager/preferences.json` and override project
   config fields. Deleting this file restores configured defaults. An explicit
   unpin overrides `pinned: true` in config; unknown editor IDs fall back to config.

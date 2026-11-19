@@ -121,6 +121,10 @@ function normalizeTasks(tasks) {
   return out
 }
 
+function groupName(value) {
+  return typeof value === "string" ? value.trim().replace(/\s+/g, " ").slice(0, 60) : ""
+}
+
 function normalizeProjects(list, home) {
   if (!Array.isArray(list)) return []
   var out = []
@@ -134,6 +138,10 @@ function normalizeProjects(list, home) {
       editor: p.editor ? String(p.editor) : "",
       tags: Array.isArray(p.tags) ? p.tags.map(String) : [],
       tasks: normalizeTasks(p.tasks),
+      group: groupName(p.group),
+      workspace: isObject(p.workspace) && Array.isArray(p.workspace.tasks)
+        ? {tasks: p.workspace.tasks.filter(function (name) { return typeof name === "string" && name.length > 0 })
+          .filter(function (name, index, names) { return names.indexOf(name) === index })} : null,
       pinned: !!p.pinned
     })
   }
@@ -328,6 +336,8 @@ function buildProject(path, name, git, meta, config, godot, types, autoTasks) {
     tags: meta && Array.isArray(meta.tags) ? meta.tags.slice() : [],
     tasks: mergeTasks(autoTasks, meta && meta.tasks),
     pinned: !!(meta && meta.pinned),
+    group: meta ? meta.group || "" : "",
+    workspace: meta ? meta.workspace : null,
     git: git || null
   }
 }
@@ -353,7 +363,9 @@ function mergeProjects(scanned, config, home) {
       used[alias] = true
     }
     used[key] = true
-    out.push(buildProject(s.path, s.name, s.git, meta, config, s.godot, s.types, s.tasks))
+    var project = buildProject(s.path, s.name, s.git, meta, config, s.godot, s.types, s.tasks)
+    project.aliases = aliases
+    out.push(project)
   }
 
   // Configured projects the scan didn't return (discovery off, path missing,
@@ -419,6 +431,7 @@ function projectMatchScore(p, query) {
   var fields = [
     [p.name, 3],
     [(p.tags || []).join(" "), 2],
+    [p.group || "", 2],
     [p.path, 1],
     [p.editorLabel, 1],
     [p.git ? p.git.branch : "", 1]
@@ -448,6 +461,54 @@ function filterProjects(projects, query) {
   var out = []
   for (var k = 0; k < scored.length; k++) out.push(scored[k].p)
   return out
+}
+
+function groupProjects(projects) {
+  var sections = Object.create(null)
+  var ungrouped = []
+  for (var i = 0; i < projects.length; i++) {
+    var project = projects[i]
+    if (!project.group) {
+      ungrouped.push(project)
+      continue
+    }
+    var key = project.group.toLowerCase()
+    if (!sections[key]) sections[key] = {name: project.group, projects: []}
+    sections[key].projects.push(project)
+  }
+
+  var rows = []
+  Object.keys(sections).sort(function (a, b) { return a.localeCompare(b) }).forEach(function (key) {
+    var section = sections[key]
+    section.projects.forEach(function (project) { rows.push({project: project, section: section.name}) })
+  })
+  ungrouped.forEach(function (project) { rows.push({project: project, section: ""}) })
+  return rows
+}
+
+function preferredGroup(value, projects) {
+  var name = groupName(value)
+  for (var i = 0; i < projects.length; i++) {
+    if (projects[i].group && projects[i].group.toLowerCase() === name.toLowerCase()) return projects[i].group
+  }
+  return name
+}
+
+function lastUsedProject(projects, usage) {
+  var latest = null
+  var latestTime = 0
+  for (var i = 0; i < projects.length; i++) {
+    var project = projects[i]
+    var paths = [project.path].concat(project.aliases || [])
+    for (var j = 0; j < paths.length; j++) {
+      var entry = usage[paths[j]] || usage[pathKey(paths[j])]
+      if (entry && entry.last > latestTime) {
+        latest = project
+        latestTime = entry.last
+      }
+    }
+  }
+  return latest
 }
 
 function escapeHtml(text) {
@@ -652,12 +713,16 @@ function actionsFor(project, config, available, effectiveEditorId) {
   actions.push({id: "cycle-editor", kind: "cycle-editor", label: "Change editor",
     hint: "Ctrl E", enabled: availableEditors(config, available).length > 0})
 
+  actions.push({id: "set-group", kind: "group", label: project.group ? "Move to group" : "Add to group",
+    hint: "Ctrl M", enabled: true})
+  if (project.group)
+    actions.push({id: "clear-group", kind: "group", label: "Remove from group", enabled: true})
   var order = {Open: 0, Git: 1, Tasks: 2, Project: 3}
   for (var j = 0; j < actions.length; j++) {
     var action = actions[j]
     action.group = action.kind === "task" ? "Tasks"
       : (action.kind === "github" || action.kind === "terminal-cmd" ? "Git"
-        : (["copy", "pin", "cycle-editor"].indexOf(action.kind) >= 0 ? "Project" : "Open"))
+        : (["copy", "pin", "cycle-editor", "group"].indexOf(action.kind) >= 0 ? "Project" : "Open"))
     action.disabledReason = ""
     var required = []
     if (action.kind.indexOf("editor-") === 0) {
@@ -682,10 +747,32 @@ function actionsFor(project, config, available, effectiveEditorId) {
     if (action.kind === "cycle-editor" && !action.enabled) action.disabledReason = "No installed editors found"
     if (action.disabledReason) action.enabled = false
   }
+  if (project.workspace) {
+    var workspace = workspacePlan(project, config, available, actions[0])
+    actions.splice(1, 0, {id: "workspace", kind: "workspace", group: "Open",
+      label: "Open workspace", hint: "Ctrl W", commands: workspace.commands,
+      disabledReason: workspace.error, enabled: !workspace.error})
+  }
   // Keep the editor first within Open and preserve task shortcut numbering.
   return actions.map(function (action, index) { return {action: action, index: index} })
     .sort(function (a, b) { return order[a.action.group] - order[b.action.group] || a.index - b.index })
     .map(function (entry) { return entry.action })
+}
+
+function workspacePlan(project, config, available, editorAction) {
+  if (!editorAction || editorAction.kind.indexOf("editor-") !== 0 || !editorAction.enabled)
+    return {error: (editorAction && editorAction.disabledReason) || "No available editor"}
+  var commands = [commandFor(editorAction, project, config).argv]
+  for (var i = 0; i < project.workspace.tasks.length; i++) {
+    var name = project.workspace.tasks[i]
+    var task = (project.tasks || []).find(function (task) { return task.name === name })
+    if (!task || !task.command) return {error: "Missing workspace task: " + name}
+    var missing = ["setsid", "uwsm-app", "xdg-terminal-exec"].concat(task.requires || [])
+      .filter(function (tool) { return !commandAvailable(tool, available) })
+    if (missing.length) return {error: "Missing: " + missing.join(", ")}
+    commands.push(commandFor({kind: "task", command: task.command}, project, {taskMode: "terminal"}).argv)
+  }
+  return {commands: commands, error: ""}
 }
 
 // Returns { argv: [...] } for direct execution or { shell: "..." } for a
@@ -799,6 +886,7 @@ function parsePreferences(raw) {
       var entry = data.projects[path], clean = {}
       if (typeof entry.pinned === "boolean") clean.pinned = entry.pinned
       if (typeof entry.editor === "string") clean.editor = entry.editor
+      if (typeof entry.group === "string") clean.group = groupName(entry.group)
       projects[pathKey(path)] = clean
     }
     return {version: 1, projects: projects}
@@ -812,6 +900,7 @@ function updatePreference(preferences, path, field, value) {
   var entry = out.projects[key] || {}
   if (field === "pinned" && typeof value === "boolean") entry.pinned = value
   if (field === "editor" && typeof value === "string") entry.editor = value
+  if (field === "group" && typeof value === "string") entry.group = groupName(value)
   out.projects[key] = entry
   return out
 }
@@ -823,6 +912,7 @@ function applyPreferences(projects, preferences, config, available) {
     for (var key in project) p[key] = project[key]
     var saved = prefs[pathKey(p.path)] || {}
     if (typeof saved.pinned === "boolean") p.pinned = saved.pinned
+    if (typeof saved.group === "string") p.group = saved.group
     if (saved.editor && config.editors[saved.editor]) p.editor = saved.editor
     var id = p.editor
     if (!id && p.godot && config.editors.godot
@@ -861,6 +951,9 @@ function recordUsage(usage, path, now) {
 
 if (typeof module !== "undefined") {
   module.exports = {
+    groupProjects: groupProjects,
+    preferredGroup: preferredGroup,
+    lastUsedProject: lastUsedProject,
     parsePreferences: parsePreferences,
     updatePreference: updatePreference,
     applyPreferences: applyPreferences,

@@ -166,3 +166,49 @@ test('browser links discard remote credentials, query strings and fragments', ()
     assert.ok(!JSON.stringify(parsed).includes('secret'))
   }
 })
+
+test('project groups precede ungrouped pins and keep ranking within each group', () => {
+  const config = Store.normalizeConfig({projects: [
+    {name: 'Loose', path: '/tmp/loose', pinned: true},
+    {name: 'Server', path: '/tmp/server', group: 'Work'},
+    {name: 'Client', path: '/tmp/client', group: 'work', pinned: true}
+  ]}, '/home/test')
+  const prefs = Store.updatePreference({}, '/tmp/server', 'group', ' Work ')
+  const projects = Store.rankProjects(Store.applyPreferences(Store.mergeProjects([], config), prefs, config, []), {}, 0)
+  const grouped = Store.groupProjects(projects)
+  assert.deepEqual(grouped.map(row => row.project.name), ['Client', 'Server', 'Loose'])
+  assert.equal(grouped[0].section, grouped[1].section)
+  assert.deepEqual(Store.filterProjects(projects, 'work').map(p => p.name), ['Client', 'Server'])
+  assert.equal(Store.preferredGroup(' WORK ', projects).toLowerCase(), 'work')
+  const cleared = Store.updatePreference(prefs, '/tmp/server', 'group', '')
+  assert.equal(Store.applyPreferences(projects, cleared, config, []).find(p => p.name === 'Server').group, '')
+})
+
+test('resume picks the most recently used available project across path aliases', () => {
+  const projects = [{path: '/first'}, {path: '/second', aliases: ['/linked/']}]
+  assert.equal(Store.lastUsedProject(projects, {'/missing': {last: 99}, '/first': {last: 4}, '/linked': {last: 8}}),
+    projects[1])
+  assert.equal(Store.lastUsedProject(projects, {}), null)
+})
+
+test('workspace launches the saved editor and the named tasks in separate terminals', () => {
+  const config = Store.normalizeConfig({projects: [
+    {path: '/tmp/example', workspace: {tasks: ['build', 'test', 'build']},
+      tasks: {build: 'make build', test: 'make test'}}
+  ]}, '/home/test')
+  const project = Store.mergeProjects([], config)[0]
+  const available = ['code', 'setsid', 'uwsm-app', 'xdg-terminal-exec']
+  const workspace = (tools, editor = 'vscode') => Store.actionsFor(project, config, tools, editor)
+    .find(action => action.id === 'workspace')
+  const action = workspace(available)
+  assert.equal(action.enabled, true)
+  assert.deepEqual(action.commands[0].slice(-2), ['code', project.path])
+  assert.equal(action.commands.length, 3)
+  assert.ok(action.commands.slice(1).every(argv => argv.includes('xdg-terminal-exec')))
+  assert.match(action.commands[1].at(-1), /make build/)
+  assert.match(action.commands[2].at(-1), /make test/)
+  assert.match(workspace(available.slice(0, -1)).disabledReason, /xdg-terminal-exec/)
+  assert.match(workspace(available, 'nvim').disabledReason, /nvim/)
+  project.tasks.pop()
+  assert.match(workspace(available).disabledReason, /Missing workspace task: test/)
+})

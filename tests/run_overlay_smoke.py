@@ -43,14 +43,30 @@ def main():
         project.mkdir(parents=True)
         config = home / '.config' / 'omarchy'
         config.mkdir(parents=True)
+        tools = directory / 'bin'
+        tools.mkdir()
+        for name, script in {
+            'smoke-editor': 'printf "editor:%s\\n" "$1" >> "$HOME/launches"',
+            'uwsm-app': 'shift; exec "$@"',
+            'xdg-terminal-exec': 'while [[ $1 != -e ]]; do shift; done; shift; exec "$@" </dev/null',
+        }.items():
+            tool = tools / name
+            tool.write_text('#!/bin/bash\n' + script + '\n')
+            tool.chmod(0o755)
+        (home / 'launches').touch()
         (config / 'project-manager.json').write_text(json.dumps({
             'taskMode': 'managed', 'discovery': {'enabled': False},
+            'editors': {'smoke': {'label': 'Smoke editor', 'command': 'smoke-editor', 'kind': 'direct'}},
             'projects': [{'path': str(project), 'name': 'Smoke project', 'tags': ['qml', 'demo'],
-                          'tasks': {'Check': 'echo hello'}}]}))
+                          'workspace': {'tasks': ['Start', 'Test']}, 'tasks': {
+                              'Check': 'echo hello',
+                              'Start': 'echo workspace-start >> "$HOME/launches"',
+                              'Test': 'echo workspace-test >> "$HOME/launches"'}}]}))
         (project / 'package.json').write_text('{"scripts":{"test":"true"}}')
         runtime = directory / 'runtime'
         runtime.mkdir(mode=0o700)
-        env = dict(os.environ, HOME=str(home), XDG_RUNTIME_DIR=str(runtime),
+        env = dict(os.environ, HOME=str(home), PATH=str(tools) + ':' + os.environ['PATH'],
+                   XDG_RUNTIME_DIR=str(runtime),
                    XDG_CONFIG_HOME=str(home / '.config'), XDG_STATE_HOME=str(home / '.local/state'),
                    QT_QPA_PLATFORM='offscreen', QT_QPA_PLATFORMTHEME='',
                    QT_QUICK_CONTROLS_STYLE='Basic', QML_IMPORT_PATH=str(imports),

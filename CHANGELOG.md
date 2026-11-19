@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Resume the most recently used project in its saved editor.
+- Open configured workspaces with an editor and a terminal per startup task.
+- Create and assign persistent project groups that appear above ungrouped projects.
+
 ## 1.1.0 — prepared, not published
 
 ### Added

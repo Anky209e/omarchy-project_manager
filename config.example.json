@@ -24,6 +24,8 @@
       "editor": "nvim",
       "tags": ["omarchy", "qml"],
       "pinned": true,
+      "group": "Workbench",
+      "workspace": { "tasks": ["Validate", "Git status"] },
       "tasks": {
         "Validate": "omarchy plugin validate .",
         "Git status": "git status"

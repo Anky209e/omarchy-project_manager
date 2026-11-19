@@ -23,6 +23,9 @@ Item {
   property bool scanning: false
   property bool scanPending: false
   property bool scannedOnce: false
+  property bool scanFinished: false
+  property bool usageLoaded: false
+  property bool resumePending: false
   property string statusText: ""
 
   // "list" = normal browse; "prompt" = a single-line text prompt (new project /
@@ -31,6 +34,7 @@ Item {
   property string promptTitle: ""
   property string promptText: ""
   property string promptKind: ""
+  property string promptProjectPath: ""
 
   property var config: Store.defaultConfig()
   property var scanned: []
@@ -133,6 +137,17 @@ Item {
   }
 
   function open(payloadJson) {
+    var payload = null
+    try { payload = JSON.parse(String(payloadJson || "{}")) } catch (e) {}
+    if (payload && payload.resume === true) {
+      if (!root.resumeReady()) {
+        root.resumePending = true
+        if (!root.scanFinished && !root.scanning) root.runScan()
+        return
+      }
+      if (root.resumeProject()) return
+    }
+    root.resumePending = false
     root.targetScreen = root.focusedScreen()
     root.opened = true
     root.filterText = ""
@@ -143,12 +158,7 @@ Item {
     root.mode = "list"
     root.disarmPointer()
 
-    if (payloadJson) {
-      try {
-        var payload = JSON.parse(String(payloadJson))
-        if (payload && typeof payload.filter === "string") root.filterText = payload.filter
-      } catch (e) {}
-    }
+    if (payload && typeof payload.filter === "string") root.filterText = payload.filter
 
     root.rebuild(false)
     if (!root.scanning) root.runScan()
@@ -156,9 +166,12 @@ Item {
   }
 
   function close() {
+    root.resumePending = false
     root.opened = false
     root.mode = "list"
     root.promptKind = ""
+    root.promptProjectPath = ""
+    promptInput.text = ""
   }
 
   function toggle() {
@@ -175,7 +188,9 @@ Item {
 
   function loadUsage(raw) {
     root.usage = Store.parseUsage(raw)
+    root.usageLoaded = true
     root.rebuild()
+    root.resumeWhenReady()
   }
 
   function runScan() {
@@ -189,9 +204,11 @@ Item {
   }
 
   function onScanFinished(raw) {
+    root.scanFinished = true
     var result = Store.parseScan(raw)
     if (!result) {
       root.statusText = "Scan failed"
+      root.resumeWhenReady()
       return
     }
     root.scanned = result.projects
@@ -199,6 +216,32 @@ Item {
     root.scannedOnce = true
     if (root.statusText === "Scan failed") root.statusText = ""
     root.rebuild()
+    root.resumeWhenReady()
+  }
+
+  function resumeReady() {
+    return root.scanFinished && root.usageLoaded && root.preferencesLoaded
+  }
+
+  function resumeWhenReady() {
+    if (!root.resumePending || !root.resumeReady()) return
+    root.resumePending = false
+    if (!root.resumeProject() && !root.opened) root.open("{}")
+  }
+
+  function resumeProject() {
+    var project = Store.lastUsedProject(root.projects, root.usage)
+    if (!project) {
+      root.statusText = "No recent project found"
+      return false
+    }
+    var editor = Store.actionsFor(project, root.config, root.availableCommands, project.editorId)[0]
+    if (!editor || editor.kind.indexOf("editor-") !== 0 || !editor.enabled) {
+      root.statusText = (editor && editor.disabledReason) || "No available editor for " + project.name
+      return false
+    }
+    root.launchProject(project, [Store.commandFor(editor, project, root.config).argv])
+    return true
   }
 
   // ---------------------------------------------------------------- model
@@ -209,7 +252,8 @@ Item {
     merged = Store.applyPreferences(merged, root.preferences, root.config, root.availableCommands)
     root.projects = Store.rankProjects(merged, root.usage, Date.now())
 
-    var visible = Store.filterProjects(root.projects, root.filterText)
+    var grouped = Store.groupProjects(Store.filterProjects(root.projects, root.filterText))
+    var visible = grouped.map(function (entry) { return entry.project })
     root.displayProjects = visible
 
     displayModel.clear()
@@ -227,6 +271,7 @@ Item {
         hasGit: row.hasGit,
         hasRemote: row.hasRemote,
         pinned: row.pinned,
+        groupName: grouped[i].section,
         projectIndex: i
       })
     }
@@ -326,6 +371,13 @@ Item {
 
     if (action.kind === "pin") { root.togglePin(); return }
     if (action.kind === "cycle-editor") { root.cycleEditor(); return }
+    if (action.id === "set-group") {
+      root.promptProjectPath = project.path
+      root.openPrompt("project-group", "Project group")
+      return
+    }
+    if (action.id === "clear-group") { root.savePreference(project.path, "group", ""); return }
+    if (action.kind === "workspace") { root.launchProject(project, action.commands); return }
     var command = Store.commandFor(action, project, root.config)
     if (!command) return
 
@@ -340,12 +392,20 @@ Item {
       root.mode = "output"
       return
     }
-    root.recordUsage(project.path)
-    root.opened = false
-    root.mode = "list"
+    var argv = command.argv || ["bash", "-lc", command.shell]
+    if (action.kind === "copy" || action.kind === "github") {
+      root.close()
+      Quickshell.execDetached(argv)
+    } else {
+      root.launchProject(project, [argv])
+    }
+  }
 
-    if (command.argv) Quickshell.execDetached(command.argv)
-    else if (command.shell) Quickshell.execDetached(["bash", "-lc", command.shell])
+  function launchProject(project, commands) {
+    root.recordUsage(project.path)
+    root.statusText = ""
+    root.close()
+    for (var i = 0; i < commands.length; i++) Quickshell.execDetached(commands[i])
   }
 
   // ---------------------------------------------------------------- prompt
@@ -362,6 +422,7 @@ Item {
   function closePrompt() {
     root.mode = "list"
     root.promptKind = ""
+    root.promptProjectPath = ""
     root.promptText = ""
     promptInput.text = ""
     keyCatcher.forceActiveFocus()
@@ -370,8 +431,13 @@ Item {
   function acceptPrompt() {
     var kind = root.promptKind
     var value = root.promptText.trim()
+    var path = root.promptProjectPath
     root.closePrompt()
     if (!value) return
+    if (kind === "project-group") {
+      root.savePreference(path, "group", Store.preferredGroup(value, root.projects))
+      return
+    }
     if (projectProc.running) { root.statusText = "A project operation is already running"; return }
 
     if (kind === "new-project") {
@@ -402,13 +468,15 @@ Item {
     }
   }
 
-  function runActionById(id) {
+  function runActionById(id, showReason) {
     for (var i = 0; i < root.actions.length; i++) {
-      if (root.actions[i].id === id && root.actions[i].enabled !== false) {
-        root.runAction(root.actions[i])
-        return
-      }
+      var action = root.actions[i]
+      if (action.id !== id) continue
+      if (action.enabled !== false) root.runAction(action)
+      else if (showReason) root.statusText = action.disabledReason
+      return
     }
+    if (showReason && id === "workspace") root.statusText = "No workspace configured for this project"
   }
 
   function runTaskByIndex(n) {
@@ -438,6 +506,7 @@ Item {
       root.statusText = "Preferences are not ready yet"
       return
     }
+    root.statusText = ""
     root.preferences = Store.updatePreference(root.preferences, path, field, value)
     preferencesFile.setText(JSON.stringify(root.preferences, null, 2) + "\n")
     root.rebuild()
@@ -472,7 +541,11 @@ Item {
     command: ["mkdir", "-p", root.stateDir]
     onExited: function (code) {
       root.stateReady = code === 0
-      if (code !== 0) root.statusText = "Cannot create preferences directory"
+      if (code !== 0) {
+        root.statusText = "Cannot create preferences directory"
+        root.preferencesLoaded = true
+        root.resumeWhenReady()
+      }
     }
   }
 
@@ -486,12 +559,14 @@ Item {
       root.preferences = Store.parsePreferences(text())
       root.preferencesLoaded = true
       root.rebuild()
+      root.resumeWhenReady()
     }
     onLoadFailed: {
       if (root.stateReady) {
         root.preferences = Store.parsePreferences("")
         root.preferencesLoaded = true
         root.rebuild()
+        root.resumeWhenReady()
       }
     }
     onSaveFailed: root.statusText = "Could not save project preferences"
@@ -627,6 +702,22 @@ Item {
           }
           if (ctrlMod && event.key === Qt.Key_O) {
             if (taskRunner.state !== "idle") root.mode = "output"
+            event.accepted = true
+            return
+          }
+          if (ctrlMod && event.key === Qt.Key_W) {
+            root.runActionById("workspace", true)
+            event.accepted = true
+            return
+          }
+          if (ctrlMod && event.key === Qt.Key_M) {
+            root.runActionById("set-group")
+            event.accepted = true
+            return
+          }
+          if (ctrlMod && event.key === Qt.Key_U) {
+            if (root.resumeReady()) root.resumeProject()
+            else root.resumePending = true
             event.accepted = true
             return
           }
@@ -816,6 +907,27 @@ Item {
                 anchors.fill: parent
                 anchors.rightMargin: root.contentMargin
                 model: displayModel
+                section.property: "groupName"
+                section.delegate: Rectangle {
+                  required property string section
+                  width: resultList.width
+                  height: section || (displayModel.count > 0 && displayModel.get(0).groupName) ? root.sp(30) : 0
+                  color: root.surface
+                  radius: root.cornerRadius
+                  Text {
+                    anchors.fill: parent
+                    anchors.leftMargin: root.sp(10)
+                    anchors.rightMargin: root.sp(10)
+                    verticalAlignment: Text.AlignVCenter
+                    text: parent.section || "Ungrouped"
+                    textFormat: Text.PlainText
+                    color: root.foreground
+                    font.family: root.fontFamily
+                    font.pixelSize: root.fCaption
+                    font.weight: Font.DemiBold
+                    elide: Text.ElideRight
+                  }
+                }
                 clip: true
                 spacing: root.sp(4)
                 boundsBehavior: Flickable.StopAtBounds
@@ -1157,6 +1269,7 @@ Item {
                       verticalAlignment: TextInput.AlignVCenter
                       clip: true
                       selectByMouse: true
+                      maximumLength: root.promptKind === "project-group" ? 60 : 32767
                       color: root.foreground
                       selectionColor: root.selectedBackground
                       selectedTextColor: root.selectedText
@@ -1167,6 +1280,18 @@ Item {
                       onAccepted: root.acceptPrompt()
                       Keys.onEscapePressed: root.closePrompt()
                     }
+                  }
+                  Text {
+                    anchors.top: promptBox.bottom
+                    anchors.topMargin: root.sSm
+                    width: parent.width
+                    visible: root.promptKind === "project-group"
+                    text: "Enter a new or existing group name."
+                    textFormat: Text.PlainText
+                    color: root.foreground
+                    font.family: root.fontFamily
+                    font.pixelSize: root.fCaption
+                    wrapMode: Text.WordWrap
                   }
                 }
               }
@@ -1190,7 +1315,7 @@ Item {
               s += "  ·  Ctrl P pin  ·  Ctrl E editor  ·  \u2190 project list  ·  Esc close"
               return s
             }
-            return "type to search  ·  \u2191\u2193 move  ·  Enter open  ·  \u21e7Enter terminal  ·  \u2325Enter files  ·  \u2192 actions  ·  Ctrl P pin  ·  Ctrl E editor  ·  Ctrl O output"
+            return "\u2191\u2193 move  ·  Enter open  ·  \u2192 actions  ·  Ctrl M group  ·  Ctrl U resume  ·  Ctrl O output"
           }
           color: root.foreground
           opacity: 0.72
