@@ -129,9 +129,19 @@ ShellRoot {
           harness.capture("empty-prompt")
           harness.stage = 9
           return
-        case 9:
+        case 9: {
+          var input = harness.find(harness.restored, "promptInput")
+          harness.require(input !== null && input.activeFocus, "Prompt input did not get focus")
+          input.insert(0, "Project name")
+          input.select(0, 7)
+          input.remove(input.selectionStart, input.selectionEnd)
+          harness.require(harness.restored.promptText === " name", "Prompt editing did not update the value")
+          harness.restored.closePrompt()
+          harness.require(harness.restored.mode === "list", "Prompt did not return to projects")
           console.log("SMOKE PASS: overlay creation, preferences restart, output, rerun, cancellation, empty prompt")
           Qt.quit()
+          return
+        }
         }
       } catch (error) {
         console.log("SMOKE FAIL: " + error)

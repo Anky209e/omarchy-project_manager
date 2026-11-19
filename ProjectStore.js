@@ -779,8 +779,12 @@ function cloneCommand(config, home, url) {
 function newProjectCommand(config, home, name) {
   var n = sanitizeProjectName(name)
   if (!n) return null
-  var dir = defaultRoot(config, home).replace(/\/+$/, "") + "/" + n
-  return { argv: ["bash", "-lc", "mkdir -p " + shellQuote(dir) + " && git -C " + shellQuote(dir) + " init"], path: dir }
+  var root = defaultRoot(config, home)
+  var dir = root.replace(/\/+$/, "") + "/" + n
+  var command = 'mkdir -p -- "$1" || exit; '
+    + 'if [[ -e "$2" || -L "$2" ]]; then echo "Project already exists" >&2; exit 1; fi; '
+    + 'mkdir -- "$2" && git -C "$2" init'
+  return { argv: ["bash", "-c", command, "project-manager", root, dir], path: dir }
 }
 
 // ---------------------------------------------------------- preferences

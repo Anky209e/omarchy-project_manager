@@ -67,6 +67,26 @@ class ScannerTests(unittest.TestCase):
             self.assertIn(str(path), projects)
             self.assertIsNotNone(projects[str(path)]['git'])
 
+    def test_discovers_newline_paths_including_trailing_newlines(self):
+        repo = self.root / 'line\nbreak\n'
+        self.git('init', repo)
+        result = self.scan('--root', self.root)
+        self.assertEqual([p['path'] for p in result['projects']], [str(repo)])
+        self.assertEqual(result['projects'][0]['name'], repo.name)
+
+    def test_git_status_uses_discovery_overrides(self):
+        self.git('init', self.root)
+        self.git('-C', self.root, 'config', 'filter.example.required', 'true')
+        self.env['GIT_DIR'] = str(self.root / 'missing')
+        log = self.record_dependency_arguments()
+        project = self.scan('--', self.root)['projects'][0]
+        self.assertIsNotNone(project['git'])
+        argv = next(record['argv'] for record in map(json.loads, log.read_text().splitlines())
+                    if Path(record['argv'][0]).name == 'git' and 'status' in record['argv'])
+        for argument in ('--no-optional-locks', '--no-lazy-fetch', 'core.fsmonitor=false',
+                         'filter.example.clean=', 'filter.example.process=', 'filter.example.required=false'):
+            self.assertIn(argument, argv)
+
     def test_canonical_projects_include_configured_aliases(self):
         repo = self.root / 'real' / 'repo'
         repo.mkdir(parents=True)

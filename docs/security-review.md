@@ -37,10 +37,13 @@ These tests do not constitute a cross-account procfs access test.
 | Managed tasks | Bash, `setsid`, `kill`, `sleep`, and the user's chosen task tools | Process group cancellation tested; broader lifecycle/dependency review incomplete |
 | Clone/create | Git and Bash commands requested by the user | Broader URL, transport, and tool-configuration review incomplete |
 
-The Git review still needs to cover configuration-controlled behavior of
-`git status`, including filesystem monitors and filters, and inherited process
-configuration. The helper resolution/startup review still needs to cover PATH
-and shell startup behavior. This patch does not pin, vendor, or audit those
+Discovery clears inherited `GIT_*` variables and disables optional index
+writes, lazy fetching, filesystem monitors, and configured clean/process
+filters during status checks. Parent repositories skip dirty checks inside
+submodule worktrees, while discovered submodules get their own status. A
+filtered file can appear modified when its worktree form differs from the index.
+The helper resolution/startup review still needs to cover PATH and shell startup
+behavior. This patch does not pin, vendor, or audit those
 system dependencies.
 
 Explicit clone URLs and arbitrary task/editor arguments are still passed to

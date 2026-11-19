@@ -32,6 +32,30 @@ test('clone commands finish after Git and propagate errors', () => {
   } finally { fs.rmSync(dir, {recursive: true, force: true}) }
 })
 
+test('creating projects refuses an existing destination', () => {
+  const fs = require('node:fs')
+  const os = require('node:os')
+  const path = require('node:path')
+  const cp = require('node:child_process')
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'project-manager-create-'))
+  try {
+    const root = path.join(dir, 'project root')
+    const existing = path.join(root, 'existing project')
+    fs.mkdirSync(existing, {recursive: true})
+    const config = Store.normalizeConfig({discovery: {roots: [root]}}, dir)
+    const create = name => {
+      const [program, ...args] = Store.newProjectCommand(config, dir, name).argv
+      return cp.spawnSync(program, args, {encoding: 'utf8'})
+    }
+    const collision = create('existing project')
+    assert.notEqual(collision.status, 0)
+    assert.match(collision.stderr, /Project already exists/)
+    assert.equal(fs.existsSync(path.join(existing, '.git')), false)
+    assert.equal(create("fresh project's folder").status, 0)
+    assert.ok(fs.existsSync(path.join(root, "fresh project's folder", '.git')))
+  } finally { fs.rmSync(dir, {recursive: true, force: true}) }
+})
+
 test('scanner aliases preserve metadata and suppress duplicate configured paths', () => {
   const config = Store.normalizeConfig({projects: [
     {path: '~/linked/../linked/demo/', name: 'Linked project', pinned: true,

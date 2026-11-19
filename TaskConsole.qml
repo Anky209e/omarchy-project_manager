@@ -6,6 +6,8 @@ Item {
   required property var runner
   property color foreground: "#eeeeee"
   property color background: "#161b22"
+  property color surface: Qt.rgba(foreground.r, foreground.g, foreground.b, 0.07)
+  property color divider: Qt.rgba(foreground.r, foreground.g, foreground.b, 0.24)
   property color accent: "#88aaff"
   property color urgent: "#ff7777"
   property string fontFamily: "sans-serif"
@@ -43,7 +45,7 @@ Item {
           text: taskView.runner.projectName + "  ·  " + taskView.runner.projectPath
           textFormat: Text.PlainText
           color: taskView.foreground
-          opacity: 0.6
+          opacity: 0.76
           font.family: taskView.fontFamily
           font.pixelSize: taskView.captionSize
           elide: Text.ElideMiddle
@@ -124,8 +126,8 @@ Item {
       width: parent.width
       height: Math.max(0, parent.height - y)
       radius: taskView.cornerRadius
-      color: Qt.rgba(taskView.background.r, taskView.background.g, taskView.background.b, 0.85)
-      border.color: Qt.rgba(taskView.foreground.r, taskView.foreground.g, taskView.foreground.b, 0.15)
+      color: taskView.surface
+      border.color: taskView.divider
       border.width: 1
       ScrollView {
         id: scroll

@@ -4,7 +4,7 @@ import Quickshell.Hyprland
 import Quickshell.Io
 import Quickshell.Wayland
 import QtQuick
-import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 import "ProjectStore.js" as Store
 
@@ -21,6 +21,7 @@ Item {
   property string focusArea: "projects"
   property bool cursorActive: false
   property bool scanning: false
+  property bool scanPending: false
   property bool scannedOnce: false
   property string statusText: ""
 
@@ -55,15 +56,19 @@ Item {
 
   // Shares the [menu] surface tokens, so themes that style the menu also style
   // this overlay.
-  property color background: Color.menu.background
-  property color foreground: Color.menu.text
-  property color border: Color.menu.border
-  property var borderSpec: Border.surfaceSpec("menu", "border", border, Math.max(1, root.sp(2)))
-  property color scrim: Color.menu.scrim
-  property color selectedBackground: Color.menu.selectedBackground
-  property color selectedText: Color.menu.selectedText
-  property color accent: Color.accent
-  property color urgent: Color.urgent
+  property color background: Commons.Color.menu.background
+  property color foreground: Commons.Color.menu.text
+  property color border: Commons.Color.menu.border
+  property var borderSpec: Commons.Border.surfaceSpec("menu", "border", border, Math.max(1, root.sp(2)))
+  property color scrim: Commons.Color.menu.scrim
+  property color selectedBackground: Commons.Color.menu.selectedBackground
+  property color surface: Commons.Util.alpha(root.foreground, 0.08)
+  property color divider: Commons.Util.alpha(root.foreground, 0.24)
+  property color selectionBorder: Commons.Color.menu.selectedBorder.a > 0
+    ? Commons.Color.menu.selectedBorder : Commons.Util.alpha(root.selectedText, 0.75)
+  property color selectedText: Commons.Color.menu.selectedText
+  property color accent: Commons.Color.accent
+  property color urgent: Commons.Color.urgent
   // Per-monitor scale. The shell's global font tokens are tuned for the bar;
   // on a larger / higher-resolution display the same pixel sizes read much
   // smaller. Scale this overlay by logical screen height (1080p -> 1.0), or by
@@ -74,29 +79,29 @@ Item {
     var h = panel.screen ? panel.screen.height : 0
     return h > 0 ? Math.max(1, Math.min(1.6, h / 1080)) : 1
   }
-  readonly property int fTitle: Math.max(1, Math.round(Style.font.title * uiScale))
-  readonly property int fHeading: Math.max(1, Math.round(Style.font.heading * uiScale))
-  readonly property int fBody: Math.max(1, Math.round(Style.font.body * uiScale))
-  readonly property int fCaption: Math.max(1, Math.round(Style.font.caption * uiScale))
-  readonly property int fDisplay: Math.max(1, Math.round(Style.font.displayLarge * uiScale))
-  readonly property int sXs: Math.max(1, Math.round(Style.spacing.xs * uiScale))
-  readonly property int sSm: Math.max(1, Math.round(Style.spacing.sm * uiScale))
-  readonly property int sMd: Math.max(1, Math.round(Style.spacing.md * uiScale))
-  readonly property int sPanelPad: Math.max(1, Math.round(Style.spacing.panelPadding * uiScale))
-  readonly property int sControlY: Math.max(1, Math.round(Style.spacing.controlPaddingY * uiScale))
+  readonly property int fTitle: Math.max(1, Math.round(Commons.Style.font.title * uiScale))
+  readonly property int fHeading: Math.max(1, Math.round(Commons.Style.font.heading * uiScale))
+  readonly property int fBody: Math.max(1, Math.round(Commons.Style.font.body * uiScale))
+  readonly property int fCaption: Math.max(1, Math.round(Commons.Style.font.caption * uiScale))
+  readonly property int fDisplay: Math.max(1, Math.round(Commons.Style.font.displayLarge * uiScale))
+  readonly property int sXs: Math.max(1, Math.round(Commons.Style.spacing.xs * uiScale))
+  readonly property int sSm: Math.max(1, Math.round(Commons.Style.spacing.sm * uiScale))
+  readonly property int sMd: Math.max(1, Math.round(Commons.Style.spacing.md * uiScale))
+  readonly property int sPanelPad: Math.max(1, Math.round(Commons.Style.spacing.panelPadding * uiScale))
+  readonly property int sControlY: Math.max(1, Math.round(Commons.Style.spacing.controlPaddingY * uiScale))
 
   function sp(px) {
-    var v = Number(px) * uiScale * Style.effectiveSpacingScale
+    var v = Number(px) * uiScale * Commons.Style.effectiveSpacingScale
     return v <= 0 ? 0 : Math.max(1, Math.round(v))
   }
 
-  property string fontFamily: Style.font.menuFamily
-  readonly property int cornerRadius: Math.max(1, Math.round(Style.cornerRadius * uiScale))
+  property string fontFamily: Commons.Style.font.menuFamily
+  readonly property int cornerRadius: Math.max(1, Math.round(Commons.Style.cornerRadius * uiScale))
   property int contentMargin: root.sPanelPad
   property int headerHeight: Math.max(root.sp(34), root.fTitle + root.sControlY * 2)
   property int contentSpacing: root.sMd
-  property int cardWidth: Math.min(root.sp(980), panel.width - Style.gapsOut * 2)
-  property int cardHeight: Math.min(root.sp(620), panel.height - Style.gapsOut * 2)
+  property int cardWidth: Math.min(root.sp(980), panel.width - Commons.Style.gapsOut * 2)
+  property int cardHeight: Math.min(root.sp(620), panel.height - Commons.Style.gapsOut * 2)
   property int rowHeight: Math.max(root.sp(82), root.fTitle + root.fCaption * 2 + root.sXs * 2 + root.sControlY * 2)
   property int actionRowHeight: Math.max(root.sp(34), root.fBody + root.sControlY * 2)
   property int footerHeight: Math.max(root.sp(18), root.fCaption + root.sp(4))
@@ -174,25 +179,25 @@ Item {
   }
 
   function runScan() {
-    if (scanProc.running) scanProc.running = false
+    if (root.scanning) {
+      root.scanPending = true
+      return
+    }
     scanProc.command = Store.scanArgs(root.config, root.scriptPath, root.home)
     root.scanning = true
-    root.statusText = "Scanning projects…"
     scanProc.running = true
   }
 
   function onScanFinished(raw) {
     var result = Store.parseScan(raw)
     if (!result) {
-      root.scanning = false
       root.statusText = "Scan failed"
       return
     }
     root.scanned = result.projects
     root.availableCommands = result.availableCommands
-    root.scanning = false
     root.scannedOnce = true
-    root.statusText = ""
+    if (root.statusText === "Scan failed") root.statusText = ""
     root.rebuild()
   }
 
@@ -350,13 +355,16 @@ Item {
     root.promptKind = kind
     root.promptTitle = title
     root.promptText = ""
-    Qt.callLater(function () { keyCatcher.forceActiveFocus() })
+    promptInput.text = ""
+    Qt.callLater(function () { if (root.mode === "prompt") promptInput.forceActiveFocus() })
   }
 
   function closePrompt() {
     root.mode = "list"
     root.promptKind = ""
     root.promptText = ""
+    promptInput.text = ""
+    keyCatcher.forceActiveFocus()
   }
 
   function acceptPrompt() {
@@ -492,7 +500,7 @@ Item {
 
   TaskRunner {
     id: taskRunner
-    onFinished: { if (!root.scanning) root.runScan() }
+    onFinished: root.runScan()
   }
 
   Process {
@@ -526,13 +534,21 @@ Item {
   Process {
     id: scanProc
     stdout: StdioCollector {
+      id: scanOutput
       waitForEnd: true
-      onStreamFinished: root.onScanFinished(text)
     }
     stderr: SplitParser {
       onRead: function (line) { console.log("project-manager: " + line) }
     }
-    onExited: root.scanning = false
+    onExited: function (code, status) {
+      root.scanning = false
+      if (root.scanPending) {
+        root.scanPending = false
+        Qt.callLater(root.runScan)
+      } else {
+        root.onScanFinished(code === 0 && status === 0 ? scanOutput.text : "")
+      }
+    }
   }
 
   Process {
@@ -544,8 +560,10 @@ Item {
       onStreamFinished: projectProc.errorOutput = text.trim()
     }
     onExited: function (exitCode, exitStatus) {
-      if (exitCode === 0 && exitStatus === 0) root.runScan()
-      else root.statusText = projectProc.errorOutput || "Project operation failed"
+      if (exitCode === 0 && exitStatus === 0) {
+        root.statusText = ""
+        root.runScan()
+      } else root.statusText = projectProc.errorOutput || "Project operation failed"
     }
   }
 
@@ -593,20 +611,7 @@ Item {
           var altMod = event.modifiers & Qt.AltModifier
           var metaMod = event.modifiers & Qt.MetaModifier
 
-          if (root.mode === "prompt") {
-            if (event.key === Qt.Key_Escape) {
-              root.closePrompt()
-            } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
-              root.acceptPrompt()
-            } else if (event.key === Qt.Key_Backspace) {
-              root.promptText = root.promptText.slice(0, -1)
-            } else if (event.text && event.text.length === 1 && event.text.charCodeAt(0) >= 32
-                       && event.text.charCodeAt(0) !== 127 && !(ctrlMod || altMod || metaMod)) {
-              root.promptText = root.promptText + event.text
-            }
-            event.accepted = true
-            return
-          }
+          if (root.mode === "prompt") return
 
           if (root.mode === "output") {
             if (event.key === Qt.Key_Escape || (ctrlMod && event.key === Qt.Key_O)) {
@@ -636,8 +641,8 @@ Item {
             else if (root.focusArea === "actions") { root.focusArea = "projects"; root.actionIndex = 0 }
             else root.close()
             event.accepted = true
-          } else if (Util.editsFilter(event, root.filterText)) {
-            root.setFilter(Util.editedFilter(event, root.filterText))
+          } else if (Commons.Util.editsFilter(event, root.filterText)) {
+            root.setFilter(Commons.Util.editedFilter(event, root.filterText))
             event.accepted = true
           } else if (event.key === Qt.Key_Tab || event.key === Qt.Key_Right) {
             if (root.actions.length > 0) root.focusArea = "actions"
@@ -725,17 +730,19 @@ Item {
         Rectangle {
           width: parent.width
           height: root.headerHeight
-          color: "transparent"
+          radius: root.cornerRadius
+          color: root.surface
 
           Text {
             textFormat: Text.PlainText
             anchors.left: parent.left
+            anchors.leftMargin: root.sp(12)
             anchors.right: statusLabel.left
             anchors.rightMargin: root.sp(12)
             anchors.verticalCenter: parent.verticalCenter
             text: root.mode === "output" ? "Task output" : (root.filterText || "Search projects…")
             color: root.foreground
-            opacity: root.filterText ? 1 : 0.58
+            opacity: root.filterText ? 1 : 0.76
             font.family: root.fontFamily
             font.pixelSize: root.fHeading
             elide: Text.ElideRight
@@ -745,14 +752,15 @@ Item {
             id: statusLabel
             textFormat: Text.PlainText
             anchors.right: parent.right
+            anchors.rightMargin: root.sp(12)
             anchors.verticalCenter: parent.verticalCenter
             width: Math.min(implicitWidth, parent.width * 0.48)
             elide: Text.ElideRight
             text: taskRunner.busy ? "● Task running · Ctrl O output"
               : (root.statusText.length > 0 ? root.statusText
-                : (displayModel.count + " / " + root.projects.length + " projects"))
+                : (root.scanning ? "Scanning projects…" : displayModel.count + " / " + root.projects.length + " projects"))
             color: root.foreground
-            opacity: 0.5
+            opacity: 0.75
             font.family: root.fontFamily
             font.pixelSize: root.fCaption
             MouseArea {
@@ -775,6 +783,7 @@ Item {
             runner: taskRunner
             canCopy: Store.commandAvailable("wl-copy", root.availableCommands)
             foreground: root.foreground; background: root.background
+            surface: root.surface; divider: root.divider
             accent: root.accent; urgent: root.urgent
             fontFamily: root.fontFamily
             bodySize: root.fBody; captionSize: root.fCaption
@@ -831,7 +840,9 @@ Item {
                   width: ListView.view.width
                   height: root.rowHeight
                   radius: root.cornerRadius
-                  color: hasCursor ? root.selectedBackground : "transparent"
+                  color: hasCursor ? root.selectedBackground : (index === root.selectedIndex ? root.surface : "transparent")
+                  border.width: hasCursor ? Commons.Style.normalBorderWidth : 0
+                  border.color: root.selectionBorder
 
                   Row {
                     anchors.fill: parent
@@ -864,7 +875,7 @@ Item {
                         textFormat: Text.PlainText
                         text: row.path.indexOf(root.home + "/") === 0 ? "~" + row.path.slice(root.home.length) : row.path
                         color: row.hasCursor ? root.selectedText : root.foreground
-                        opacity: 0.55
+                        opacity: 0.8
                         font.family: root.fontFamily
                         font.pixelSize: root.fCaption
                         elide: Text.ElideMiddle
@@ -877,7 +888,7 @@ Item {
                           width: Math.min(parent.width * 0.64, branchLabel.implicitWidth + root.sp(12))
                           height: root.fCaption + root.sp(5)
                           radius: root.sp(3)
-                          color: Util.alpha(row.dirty ? root.urgent : root.accent, 0.12)
+                          color: Commons.Util.alpha(row.dirty ? root.urgent : root.accent, 0.12)
                           Text {
                             id: branchLabel
                             anchors.fill: parent
@@ -896,7 +907,7 @@ Item {
                           anchors.verticalCenter: parent.verticalCenter
                           text: row.typeLabel || row.editorLabel
                           color: row.hasCursor ? root.selectedText : root.foreground
-                          opacity: 0.55
+                          opacity: 0.8
                           font.family: root.fontFamily
                           font.pixelSize: root.fCaption
                           elide: Text.ElideRight
@@ -931,7 +942,7 @@ Item {
                     accent: root.accent
                     fontFamily: root.fontFamily; pixelSize: root.fCaption
                     padding: root.sp(6); radius: root.sp(4)
-                    opacity: row.pinned ? 1 : 0.3
+                    opacity: row.pinned ? 1 : 0.68
                     Accessible.name: row.pinned ? "Unpin " + row.name : "Pin " + row.name
                     enabled: root.preferencesLoaded
                     onClicked: {
@@ -976,7 +987,7 @@ Item {
                   text: root.filterText ? "Try another name, path, tag, or branch." : "Clone a repository or create your first project."
                   textFormat: Text.PlainText
                   color: root.foreground
-                  opacity: 0.5
+                  opacity: 0.75
                   font.family: root.fontFamily
                   font.pixelSize: root.fCaption
                   wrapMode: Text.Wrap
@@ -1016,8 +1027,8 @@ Item {
                 anchors.left: parent.left
                 anchors.top: parent.top
                 anchors.bottom: parent.bottom
-                width: Style.normalBorderWidth
-                color: Util.alpha(root.border, 0.28)
+                width: Commons.Style.normalBorderWidth
+                color: root.divider
               }
 
               Column {
@@ -1072,7 +1083,7 @@ Item {
                   visible: root.mode === "list" && root.currentProject && root.currentProject.tags.length > 0
                   text: root.currentProject ? root.currentProject.tags.join("  ·  ") : ""
                   color: root.foreground
-                  opacity: 0.55
+                  opacity: 0.8
                   font.family: root.fontFamily
                   font.pixelSize: root.fCaption
                   elide: Text.ElideRight
@@ -1091,7 +1102,7 @@ Item {
                     return parts.join("  ·  ")
                   }
                   color: root.foreground
-                  opacity: 0.45
+                  opacity: 0.72
                   font.family: root.fontFamily
                   font.pixelSize: root.fCaption
                   elide: Text.ElideRight
@@ -1109,6 +1120,7 @@ Item {
                   keyboardActive: root.focusArea === "actions"
                   foreground: root.foreground; accent: root.accent
                   selectedBackground: root.selectedBackground; selectedText: root.selectedText
+                  selectionBorder: root.selectionBorder; hoverBackground: root.surface
                   fontFamily: root.fontFamily
                   bodySize: root.fBody; captionSize: root.fCaption
                   rowHeight: root.actionRowHeight; padding: root.sp(10)
@@ -1132,23 +1144,28 @@ Item {
                     anchors.top: parent.top
                     height: root.actionRowHeight
                     radius: root.cornerRadius
-                    color: Util.alpha(root.foreground, 0.08)
-                    border.width: Style.normalBorderWidth
-                    border.color: Util.alpha(root.border, 0.5)
+                    color: root.surface
+                    border.width: Commons.Style.normalBorderWidth
+                    border.color: promptInput.activeFocus ? root.selectionBorder : root.divider
 
-                    Text {
-                      textFormat: Text.PlainText
-                      anchors.left: parent.left
+                    TextInput {
+                      id: promptInput
+                      objectName: "promptInput"
+                      anchors.fill: parent
                       anchors.leftMargin: root.sp(10)
-                      anchors.right: parent.right
                       anchors.rightMargin: root.sp(10)
-                      anchors.verticalCenter: parent.verticalCenter
-                      text: root.promptText.length > 0 ? root.promptText : "Type and press Enter…"
+                      verticalAlignment: TextInput.AlignVCenter
+                      clip: true
+                      selectByMouse: true
                       color: root.foreground
-                      opacity: root.promptText.length > 0 ? 1 : 0.4
+                      selectionColor: root.selectedBackground
+                      selectedTextColor: root.selectedText
                       font.family: root.fontFamily
                       font.pixelSize: root.fBody
-                      elide: Text.ElideRight
+                      Accessible.name: root.promptTitle
+                      onTextChanged: root.promptText = text
+                      onAccepted: root.acceptPrompt()
+                      Keys.onEscapePressed: root.closePrompt()
                     }
                   }
                 }
@@ -1176,7 +1193,7 @@ Item {
             return "type to search  ·  \u2191\u2193 move  ·  Enter open  ·  \u21e7Enter terminal  ·  \u2325Enter files  ·  \u2192 actions  ·  Ctrl P pin  ·  Ctrl E editor  ·  Ctrl O output"
           }
           color: root.foreground
-          opacity: 0.45
+          opacity: 0.72
           font.family: root.fontFamily
           font.pixelSize: root.fCaption
           elide: Text.ElideRight

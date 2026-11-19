@@ -8,6 +8,8 @@ ListView {
   property bool keyboardActive: false
   property color foreground: "#eeeeee"
   property color selectedBackground: "#334455"
+  property color selectionBorder: "#88aaff"
+  property color hoverBackground: Qt.rgba(foreground.r, foreground.g, foreground.b, 0.07)
   property color selectedText: "#ffffff"
   property color accent: "#88aaff"
   property string fontFamily: "sans-serif"
@@ -59,7 +61,9 @@ ListView {
     width: menu.width
     height: menu.rowHeight + (reason ? menu.captionSize + 4 : 0)
     radius: menu.cornerRadius
-    color: highlighted ? menu.selectedBackground : (pointer.containsMouse ? Qt.rgba(menu.foreground.r, menu.foreground.g, menu.foreground.b, 0.06) : "transparent")
+    color: highlighted ? menu.selectedBackground : (pointer.containsMouse ? menu.hoverBackground : "transparent")
+    border.width: highlighted ? 1 : 0
+    border.color: menu.selectionBorder
     Accessible.role: Accessible.Button
     Accessible.name: title + (reason ? ". " + reason : "")
     Accessible.onPressAction: { if (actionable) menu.actionRequested(index) }
@@ -79,7 +83,7 @@ ListView {
           text: row.title
           textFormat: Text.PlainText
           color: row.highlighted ? menu.selectedText : menu.foreground
-          opacity: row.actionable ? 1 : 0.55
+          opacity: row.actionable ? 1 : 0.72
           font.family: menu.fontFamily
           font.pixelSize: menu.bodySize
           elide: Text.ElideRight
@@ -88,7 +92,7 @@ ListView {
           id: hint
           text: row.shortcut
           color: row.highlighted ? menu.selectedText : menu.foreground
-          opacity: 0.55
+          opacity: 0.8
           font.family: menu.fontFamily
           font.pixelSize: menu.captionSize
         }
@@ -99,7 +103,7 @@ ListView {
         text: row.reason
         textFormat: Text.PlainText
         color: row.highlighted ? menu.selectedText : menu.foreground
-        opacity: 0.65
+        opacity: 0.76
         font.family: menu.fontFamily
         font.pixelSize: menu.captionSize
         elide: Text.ElideRight

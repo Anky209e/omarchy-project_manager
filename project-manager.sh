@@ -53,39 +53,42 @@ done
 # A non-numeric depth would make `find` bail; fall back to the default.
 [[ $depth =~ ^[0-9]+$ ]] || depth=3
 
-expand() {
-  local p="${1:-}"
-  p="${p/#\~/$HOME}"
-  printf '%s\n' "$p"
-}
+# Discovery should use the project directory and its own Git metadata.
+while IFS= read -r variable; do
+  [[ $variable == GIT_* ]] && unset "$variable"
+done < <(compgen -e)
 
-declare -A seen=()
 declare -A names=()
 declare -A aliases=()
 
 add_project() {
-  local raw="$1" name="$2" path real
-  path=$(expand "$raw")
+  local path="$1" name real trimmed
+  path="${path/#\~/$HOME}"
   [[ -d $path ]] || return 0
-  real=$(realpath -m -- "$path" 2>/dev/null) || return 0
-  aliases[$real]=$(jq -cn --argjson existing "${aliases[$real]:-[]}" --arg path "$path" '$existing + [$path] | unique')
-  [[ -n ${seen[$real]:-} ]] && return 0
-  seen[$real]=1
-  names[$real]="$name"
+  IFS= read -r -d '' real < <(realpath -mz -- "$path" 2>/dev/null) || return 0
+  if [[ ${aliases[$real]+present} ]]; then
+    aliases[$real]=$(jq -c --arg path "$path" '. + [$path] | unique' <<<"${aliases[$real]}") || return 1
+    return 0
+  fi
+  trimmed=$path
+  while [[ $trimmed == */ && $trimmed != / ]]; do trimmed=${trimmed%/}; done
+  name=${trimmed##*/}
+  names[$real]="${name:-/}"
+  aliases[$real]=$(jq -cn --arg path "$path" '[$path]')
 }
 
-# Explicitly configured projects come first so their metadata (attached in
-# QML by path) always maps onto a scanned entry, even when discovery is off.
-for p in "${explicit[@]:-}"; do
-  [[ -n $p ]] || continue
-  add_project "$p" "$(basename "$(expand "$p")")"
+# Explicit entries keep their alias even when discovery is disabled.
+for p in "${explicit[@]}"; do
+  add_project "$p"
 done
 
 IFS=',' read -r -a excludes <<<"$exclude_csv"
 
 discover_root() {
   local root
-  root=$(expand "${1:-}")
+  [[ -n $1 ]] || return 0
+  root=${1/#\~/$HOME}
+  [[ $root == /* ]] || root=./$root
   [[ -d $root ]] || return 0
 
   local -a prunable=('(')
@@ -107,10 +110,10 @@ discover_root() {
   fi
 
   local d
-  while IFS= read -r d; do
+  while IFS= read -r -d '' d; do
     [[ -d $d/.git || -f $d/.git || -f $d/project.godot ]] || continue
-    add_project "$d" "$(basename "$d")"
-  done < <(find "$root" -maxdepth "$depth" -type d "${prunable[@]}" -type d -print 2>/dev/null)
+    add_project "$d"
+  done < <(find "$root" -maxdepth "$depth" -type d "${prunable[@]}" -type d -print0 2>/dev/null)
 }
 
 if ((${#roots[@]})); then
@@ -120,18 +123,42 @@ if ((${#roots[@]})); then
 fi
 
 git_json() {
-  local p="$1" out branch ahead behind dirty
+  local p="$1" out branch ahead behind dirty key driver config_read=0
+  local -a status_config=(-c core.fsmonitor=false -c core.hooksPath=/dev/null)
   if ! git -C "$p" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     printf 'null'
     return 0
   fi
 
-  out=$(git -C "$p" status --porcelain=v2 --branch --untracked-files=normal 2>/dev/null || true)
+  # Compare files without running configured clean/process filter commands.
+  while IFS= read -r -d '' key; do
+    if [[ -z $key ]]; then
+      config_read=1
+    elif [[ $key == filter.*.clean || $key == filter.*.process || $key == filter.*.required ]]; then
+      driver=${key%.*}
+      # Git splits -c assignments at the first equals sign.
+      if [[ $driver == *=* ]]; then
+        printf 'null'
+        return 0
+      fi
+      status_config+=(-c "$driver.clean=" -c "$driver.process=" -c "$driver.required=false")
+    fi
+  done < <(git -C "$p" config --null --name-only --list 2>/dev/null && printf '\0')
+  if ((!config_read)); then
+    printf 'null'
+    return 0
+  fi
+  # Keep gitlink changes visible without inspecting submodule worktrees.
+  out=$(git --no-optional-locks --no-lazy-fetch -C "$p" "${status_config[@]}" status \
+    --porcelain=v2 --branch --untracked-files=normal --ignore-submodules=dirty 2>/dev/null) || {
+    printf 'null'
+    return 0
+  }
   branch=$(sed -n 's/^# branch.head //p' <<<"$out" | head -n1)
   ahead=$(sed -n 's/^# branch.ab +\([0-9]*\) -.*/\1/p' <<<"$out" | head -n1)
   behind=$(sed -n 's/^# branch.ab .*-\([0-9]*\)$/\1/p' <<<"$out" | head -n1)
   dirty=0
-  grep -qv '^#' <<<"$out" && dirty=1
+  if [[ -n $out ]] && grep -qv '^#' <<<"$out"; then dirty=1; fi
   # A configured remote can contain credentials. Feed it only through stdin,
   # never argv or the environment, and expose only a public repository URL.
   # Downstream jq invocations and browser launchers receive the sanitized value.
@@ -173,11 +200,10 @@ has() { [[ -e "$1/$2" ]]; }
 # Commands required by generated tasks; added to the availability scan so the
 # overlay can grey out tasks whose tool is not installed.
 declare -a NEEDED=()
-declare -a TASK_OBJS=()
+declare -a TASK_FIELDS=()
 
 task() {
-  TASK_OBJS+=("$(jq -cn --arg n "$1" --arg c "$2" --arg r "${3:-}" '{name:$n, command:$c, requires:$r}')")
-  [[ -n ${3:-} ]] && NEEDED+=("$3")
+  TASK_FIELDS+=("$1" "$2" "${3:-}")
 }
 
 detect_types() {
@@ -193,7 +219,7 @@ detect_types() {
   has "$d" composer.json && out+=(php)
   has "$d" Makefile && out+=(make)
   { has "$d" justfile || has "$d" Justfile || has "$d" .justfile; } && out+=(just)
-  if ((${#out[@]})); then printf '%s\n' "${out[@]}" | jq -R . | jq -sc .; else printf '[]'; fi
+  if ((${#out[@]})); then printf '%s\n' "${out[@]}" | jq -Rsc 'split("\n")[:-1]'; else printf '[]'; fi
 }
 
 node_tasks() {
@@ -253,9 +279,9 @@ just_tasks() {
 }
 
 detect_tasks() {
-  local d="$1" t
-  TASK_OBJS=()
-  for t in $(detect_types "$d" | jq -r '.[]' 2>/dev/null); do
+  local d="$1" types="$2" t
+  TASK_FIELDS=()
+  while IFS= read -r t; do
     case "$t" in
     node) node_tasks "$d" ;;
     make) make_tasks "$d" ;;
@@ -283,27 +309,34 @@ detect_tasks() {
     ruby) task "bundle install" "bundle install" bundle ;;
     php) task "composer install" "composer install" composer ;;
     esac
-  done
-  if ((${#TASK_OBJS[@]})); then printf '%s\n' "${TASK_OBJS[@]}" | jq -s .; else printf '[]'; fi
+  done < <(jq -r '.[]' <<<"$types")
+  if ((${#TASK_FIELDS[@]})); then
+    printf '%s\0' "${TASK_FIELDS[@]}" | jq -Rsc '
+      split("\u0000")[:-1] as $fields
+      | [range(0; ($fields | length); 3) as $i
+         | {name:$fields[$i], command:$fields[$i+1], requires:$fields[$i+2]}]'
+  else
+    printf '[]'
+  fi
 }
 
 tmp=$(mktemp) || exit 1
 trap 'rm -f "$tmp"' EXIT
 
-while IFS= read -r real; do
+while IFS= read -r -d '' real; do
   [[ -n $real ]] || continue
   git=$(git_json "$real")
   godot=false
   [[ -f $real/project.godot ]] && godot=true
   types=$(detect_types "$real")
-  tasks=$(detect_tasks "$real")
+  tasks=$(detect_tasks "$real" "$types")
   while IFS= read -r required; do
     [[ -n $required ]] && NEEDED+=("$required")
   done < <(jq -r '.[].requires | select(length > 0)' <<<"$tasks")
   jq -cn --arg name "${names[$real]}" --arg path "$real" --argjson git "$git" --argjson godot "$godot" \
     --argjson types "$types" --argjson tasks "$tasks" --argjson aliases "${aliases[$real]:-[]}" \
     '{name:$name, path:$path, aliases:$aliases, git:$git, godot:$godot, types:$types, tasks:$tasks}' >>"$tmp"
-done < <(printf '%s\n' "${!seen[@]}" | sort)
+done < <(printf '%s\0' "${!names[@]}" | sort -z)
 
 avail=()
 add_avail() {
